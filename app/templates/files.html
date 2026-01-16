@@ -1,0 +1,764 @@
+{% extends "base.html" %}
+
+{% block title %}文件管理 - BioData Manager{% endblock %}
+
+{% block content %}
+<!-- 页面头部 -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-0">
+            <i class="bi bi-folder2-open me-2"></i>文件管理
+        </h1>
+        <p class="text-muted small mb-0">文件分类整理、批量导入导出、存储优化</p>
+    </div>
+    <div class="btn-group">
+        <button type="button" class="btn btn-outline-primary" onclick="scanDownloads()">
+            <i class="bi bi-arrow-repeat me-1"></i>扫描下载目录
+        </button>
+        <button type="button" class="btn btn-outline-secondary" onclick="refreshFileList()">
+            <i class="bi bi-arrow-clockwise me-1"></i>刷新
+        </button>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 左侧：导入模块 -->
+    <div class="col-md-4">
+        <!-- 扫描状态卡片 -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-upload me-2"></i>目录扫描</span>
+                <span class="badge bg-secondary" id="scan-status">待扫描</span>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-2">点击"扫描下载目录"按钮扫描下载目录中的文件夹</p>
+                <button type="button" class="btn btn-primary btn-sm w-100" onclick="scanDownloads()">
+                    <i class="bi bi-search me-1"></i>扫描下载目录
+                </button>
+            </div>
+        </div>
+
+        <!-- 文件夹列表 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-folder me-2"></i>下载目录文件夹</span>
+                <span class="badge bg-primary" id="folder-count">0 个</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush" id="folder-list">
+                    <div class="list-group-item text-center py-4 text-muted">
+                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                        点击扫描加载文件夹
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：查看模块 -->
+    <div class="col-md-8">
+        <!-- 筛选卡片 -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-funnel me-2"></i>筛选条件
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <select class="form-select form-select-sm" id="filter-project-type">
+                            <option value="">项目类型 (全部)</option>
+                            <option value="raw">原始数据</option>
+                            <option value="result">结果数据</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <input type="text" class="form-control form-control-sm" 
+                               id="filter-project-id" placeholder="项目编号">
+                    </div>
+                    <div class="col-md-4">
+                        <button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="applyFilter()">
+                            <i class="bi bi-search me-1"></i>查询
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetFilter()">
+                            重置
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 项目列表 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list me-2"></i>已导入项目</span>
+                <span class="badge bg-success" id="project-count">0 个</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>#</th>
+                                <th>项目编号</th>
+                                <th>项目名称</th>
+                                <th>数据类型</th>
+                                <th>文件数</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="project-list">
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">
+                                    <div class="spinner-border text-secondary" role="status">
+                                        <span class="visually-hidden">加载中...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 导入弹窗 -->
+<div class="modal fade" id="import-modal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">导入文件</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- 目标项目选择 -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">目标项目</label>
+                    <div class="btn-group w-100" role="group">
+                        <input type="radio" class="btn-check" name="project-mode" id="mode-new" autocomplete="off" checked>
+                        <label class="btn btn-outline-primary" for="mode-new">新建项目</label>
+                        
+                        <input type="radio" class="btn-check" name="project-mode" id="mode-existing" autocomplete="off">
+                        <label class="btn btn-outline-primary" for="mode-existing">选择已有项目</label>
+                    </div>
+                </div>
+
+                <!-- 选择已有项目表单 -->
+                <div class="mb-3" id="existing-project-form" style="display: none;">
+                    <label class="form-label">选择项目</label>
+                    <select class="form-select" id="target-project">
+                        <option value="">请选择项目...</option>
+                    </select>
+                </div>
+
+                <!-- 数据类型选择 -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">数据类型</label>
+                    <div class="btn-group w-100" role="group">
+                        <input type="radio" class="btn-check" name="data-type" id="type-raw" autocomplete="off" checked>
+                        <label class="btn btn-outline-primary" for="type-raw">原始数据</label>
+                        
+                        <input type="radio" class="btn-check" name="data-type" id="type-result" autocomplete="off">
+                        <label class="btn btn-outline-primary" for="type-result">结果数据</label>
+                    </div>
+                </div>
+
+                <!-- 新建项目表单 (两列布局) -->
+                <div id="new-project-form">
+                    <div class="row g-2 mb-2">
+                        <div class="col-12">
+                            <label class="form-label">项目编号 <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="new-project-id" readonly>
+                                <button class="btn btn-outline-secondary" type="button" onclick="generateProjectId()">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-12">
+                            <label class="form-label">项目名称 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="new-project-title" placeholder="请输入项目名称">
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-6">
+                            <label class="form-label">数据类型 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="new-project-type">
+                                <option value="">请选择...</option>
+                                <option value="rnaseq">转录组 (RNA-Seq)</option>
+                                <option value="singlecell">单细胞转录组 (Single-cell)</option>
+                                <option value="spatial">空间转录组 (Spatial)</option>
+                                <option value="proteomics">蛋白组 (Proteomics)</option>
+                                <option value="phosphoproteomics">磷酸化组 (Phosphoproteomics)</option>
+                                <option value="multiomics">多组学 (Multi-omics)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">物种 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="new-project-species">
+                                <option value="">请选择...</option>
+                                <option value="Homo sapiens">人类 (Homo sapiens)</option>
+                                <option value="Mus musculus">小鼠 (Mus musculus)</option>
+                                <option value="Rattus norvegicus">大鼠 (Rattus norvegicus)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-6">
+                            <label class="form-label">DOI</label>
+                            <input type="text" class="form-control" id="new-project-doi" placeholder="例如: 10.1234/xxxxx">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">数据库编号</label>
+                            <input type="text" class="form-control" id="new-project-db-id" placeholder="例如: PRJNAxxxxx">
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">描述</label>
+                        <textarea class="form-control" id="new-project-description" rows="2" placeholder="请输入项目描述"></textarea>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- 文件选择区域 -->
+                <div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-bold mb-0">选择文件</label>
+                        <div>
+                            <button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="selectAllFiles(true)">全选</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="selectAllFiles(false)">取消全选</button>
+                        </div>
+                    </div>
+                    <div class="border rounded p-2 bg-light" style="max-height: 200px; overflow-y: auto;" id="file-selection-area">
+                        <p class="text-muted text-center mb-0">请先选择要导入的文件夹</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="confirmImport()">
+                    <i class="bi bi-upload me-1"></i>导入
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal fade" id="detail-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">项目详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="detail-content">
+                <!-- 动态填充 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" onclick="downloadSelectedFiles()">
+                    <i class="bi bi-download me-1"></i>下载选中文件
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 全局数据
+    let downloadFolders = [];
+    let projects = [];
+    let currentFolder = null;
+    let selectedFiles = new Set();
+
+    // ==================== 初始化 ====================
+    $(document).ready(function() {
+        loadProjects();
+        setupEventListeners();
+    });
+
+    // 设置事件监听
+    function setupEventListeners() {
+        // 项目模式切换
+        $('input[name="project-mode"]').change(function() {
+            const mode = $(this).attr('id');
+            if (mode === 'mode-new') {
+                $('#new-project-form').show();
+                $('#existing-project-form').hide();
+            } else {
+                $('#new-project-form').hide();
+                $('#existing-project-form').show();
+                loadExistingProjects();
+            }
+        });
+
+        // 数据类型切换
+        $('input[name="data-type"]').change(function() {
+            updateProjectIdPrefix();
+        });
+    }
+
+    // 更新项目编号前缀
+    function updateProjectIdPrefix() {
+        const dataType = $('input[name="data-type"]:checked').attr('id');
+        const prefix = dataType === 'type-raw' ? 'RAW-' : 'RES-';
+        $('#new-project-id').val(prefix + '________');
+    }
+
+    // 生成项目编号
+    function generateProjectId() {
+        const dataType = $('input[name="data-type"]:checked').attr('id');
+        const prefix = dataType === 'type-raw' ? 'RAW-' : 'RES-';
+        const uuid = Math.random().toString(36).substring(2, 10).toUpperCase();
+        $('#new-project-id').val(prefix + uuid);
+    }
+
+    // ==================== 扫描功能 ====================
+    function scanDownloads() {
+        updateScanStatus('running', '扫描中...');
+        
+        apiGet('/api/scan-downloads').then(function(res) {
+            if (res.success && res.task_id) {
+                pollScanTask(res.task_id, function(result) {
+                    downloadFolders = result || [];
+                    renderFolderList();
+                    updateScanStatus('completed', `完成 (${downloadFolders.length})`);
+                });
+            } else {
+                updateScanStatus('failed', '启动失败');
+            }
+        }).catch(function() {
+            updateScanStatus('failed', '启动失败');
+        });
+    }
+
+    function pollScanTask(taskId, callback) {
+        const timer = setInterval(function() {
+            apiGet('/api/task/status/' + taskId).then(function(res) {
+                if (res.success && res.task) {
+                    const task = res.task;
+                    if (task.status === 'running') {
+                        updateScanStatus('running', task.message);
+                    } else if (task.status === 'completed') {
+                        clearInterval(timer);
+                        callback(task.result);
+                    } else if (task.status === 'failed') {
+                        clearInterval(timer);
+                        updateScanStatus('failed', '扫描失败');
+                    }
+                }
+            });
+        }, 500);
+    }
+
+    function updateScanStatus(status, message) {
+        const badge = $('#scan-status');
+        if (status === 'running') {
+            badge.attr('class', 'badge bg-warning').html('<span class="spinner-border spinner-border-sm me-1"></span>' + message);
+        } else if (status === 'completed') {
+            badge.attr('class', 'badge bg-success').html('<i class="bi bi-check-circle me-1"></i>' + message);
+        } else if (status === 'failed') {
+            badge.attr('class', 'badge bg-danger').html('<i class="bi bi-x-circle me-1"></i>' + message);
+        }
+    }
+
+    // ==================== 渲染函数 ====================
+    function renderFolderList() {
+        const list = $('#folder-list');
+        $('#folder-count').text(downloadFolders.length + ' 个');
+        
+        if (downloadFolders.length === 0) {
+            list.html(`
+                <div class="list-group-item text-center py-4 text-muted">
+                    <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                    暂无文件夹
+                </div>
+            `);
+        } else {
+            let html = '';
+            downloadFolders.forEach(function(f, index) {
+                html += `
+                    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="bi bi-folder me-2 text-warning"></i>
+                            <span class="fw-medium">${f.name}</span>
+                            <small class="text-muted d-block">${f.file_count} 个文件</small>
+                        </div>
+                        <div>
+                            <button class="btn btn-outline-primary btn-sm me-1" onclick="openImportModal('${index}')">
+                                <i class="bi bi-upload"></i> 导入
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="viewFolderDetails('${index}')">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            list.html(html);
+        }
+    }
+
+    function renderProjectList() {
+        const tbody = $('#project-list');
+        $('#project-count').text(projects.length + ' 个');
+        
+        if (projects.length === 0) {
+            tbody.html(`
+                <tr>
+                    <td colspan="6" class="text-center py-4 text-muted">
+                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                        暂无已导入项目
+                    </td>
+                </tr>
+            `);
+        } else {
+            let html = '';
+            projects.forEach(function(p, index) {
+                const dataTypeLabel = getDataTypeLabel(p.data_type || p.results_type);
+                html += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td><code>${p.id || p.raw_id || p.results_id}</code></td>
+                        <td>${p.title || p.raw_title || p.results_title}</td>
+                        <td><span class="badge bg-info">${dataTypeLabel}</span></td>
+                        <td>${p.file_count || 0}</td>
+                        <td>
+                            <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('${p.id || p.raw_id || p.results_id}')">
+                                <i class="bi bi-eye"></i> 查看
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.html(html);
+        }
+    }
+
+    function getDataTypeLabel(type) {
+        const labels = {
+            'rnaseq': 'RNA-Seq',
+            'singlecell': '单细胞',
+            'spatial': '空间组',
+            'proteomics': '蛋白组',
+            'phosphoproteomics': '磷酸化组',
+            'multiomics': '多组学',
+            'alignment': '比对',
+            'counts': '计数矩阵',
+            'peak_calling': 'Peak Calling',
+            'variants': '变异检测',
+            'enrichment': '富集分析',
+            'visualization': '可视化',
+            'other': '其他'
+        };
+        return labels[type] || type || '未分类';
+    }
+
+    // ==================== 项目加载 ====================
+    function loadProjects() {
+        apiGet('/api/projects').then(function(res) {
+            if (res.success && res.projects) {
+                projects = res.projects;
+                renderProjectList();
+            }
+        });
+        
+        // 加载结果项目
+        apiGet('/api/bioresult-projects').then(function(res) {
+            if (res.success && res.projects) {
+                projects = projects.concat(res.projects);
+                renderProjectList();
+            }
+        });
+    }
+
+    function loadExistingProjects() {
+        const select = $('#target-project');
+        const dataType = $('input[name="data-type"]:checked').attr('id');
+        const type = dataType === 'type-raw' ? 'raw' : 'result';
+        
+        select.empty().append('<option value="">请选择项目...</option>');
+        
+        const filteredProjects = projects.filter(function(p) {
+            if (type === 'raw') return p.raw_id;
+            return p.results_id;
+        });
+        
+        filteredProjects.forEach(function(p) {
+            const id = p.raw_id || p.results_id;
+            const title = p.raw_title || p.results_title;
+            select.append(`<option value="${id}">${id} - ${title}</option>`);
+        });
+    }
+
+    // ==================== 导入功能 ====================
+    function openImportModal(folderIndex) {
+        currentFolder = downloadFolders[folderIndex];
+        selectedFiles.clear();
+        
+        // 重置表单
+        $('#mode-new').prop('checked', true).trigger('change');
+        generateProjectId();
+        
+        // 渲染文件选择区域
+        renderFileSelection(currentFolder.files || []);
+        
+        // 显示弹窗
+        new bootstrap.Modal($('#import-modal')).show();
+    }
+
+    function renderFileSelection(files) {
+        const area = $('#file-selection-area');
+        
+        if (!files || files.length === 0) {
+            area.html('<p class="text-muted text-center mb-0">该文件夹为空</p>');
+            return;
+        }
+        
+        let html = '';
+        files.forEach(function(f, index) {
+            const fileId = `file-${index}`;
+            html += `
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="${fileId}" value="${f.name}" 
+                           onchange="toggleFileSelect(this)">
+                    <label class="form-check-label" for="${fileId}">
+                        ${f.name} <small class="text-muted">(${formatSize(f.size)})</small>
+                    </label>
+                </div>
+            `;
+        });
+        area.html(html);
+    }
+
+    function toggleFileSelect(checkbox) {
+        if (checkbox.checked) {
+            selectedFiles.add(checkbox.value);
+        } else {
+            selectedFiles.delete(checkbox.value);
+        }
+    }
+
+    function selectAllFiles(select) {
+        $('#file-selection-area input[type="checkbox"]').each(function() {
+            $(this).prop('checked', select);
+            if (select) {
+                selectedFiles.add($(this).val());
+            } else {
+                selectedFiles.delete($(this).val());
+            }
+        });
+    }
+
+    function confirmImport() {
+        const mode = $('input[name="project-mode"]:checked').attr('id');
+        const dataType = $('input[name="data-type"]:checked').attr('id');
+        const isRaw = dataType === 'type-raw';
+        
+        if (selectedFiles.size === 0) {
+            showToast('请选择要导入的文件', 'warning');
+            return;
+        }
+        
+        const requestData = {
+            folder_name: currentFolder.name,
+            files: Array.from(selectedFiles),
+            data_type: isRaw ? 'raw' : 'result'
+        };
+        
+        if (mode === 'mode-new') {
+            // 新建项目
+            requestData.project_info = {
+                title: $('#new-project-title').val(),
+                type: $('#new-project-type').val(),
+                species: $('#new-project-species').val(),
+                doi: $('#new-project-doi').val(),
+                db_id: $('#new-project-db-id').val(),
+                description: $('#new-project-description').val()
+            };
+            
+            if (!requestData.project_info.title || !requestData.project_info.type || !requestData.project_info.species) {
+                showToast('请填写必填字段', 'warning');
+                return;
+            }
+            
+            apiPost('/api/import-download', requestData).then(function(res) {
+                if (res.success) {
+                    showToast('导入成功');
+                    $('#import-modal').modal('hide');
+                    scanDownloads();
+                    loadProjects();
+                } else {
+                    showToast(res.message || '导入失败', 'error');
+                }
+            });
+        } else {
+            // 选择已有项目
+            requestData.project_id = $('#target-project').val();
+            if (!requestData.project_id) {
+                showToast('请选择项目', 'warning');
+                return;
+            }
+            
+            apiPost('/api/import-download', requestData).then(function(res) {
+                if (res.success) {
+                    showToast('导入成功');
+                    $('#import-modal').modal('hide');
+                    scanDownloads();
+                    loadProjects();
+                } else {
+                    showToast(res.message || '导入失败', 'error');
+                }
+            });
+        }
+    }
+
+    // ==================== 查看功能 ====================
+    function viewFolderDetails(folderIndex) {
+        const folder = downloadFolders[folderIndex];
+        const content = $('#detail-content');
+        
+        let html = `
+            <div class="mb-3">
+                <strong>文件夹:</strong> ${folder.name}
+            </div>
+            <div class="mb-3">
+                <strong>路径:</strong> <code>${folder.path}</code>
+            </div>
+            <div class="mb-3">
+                <strong>文件列表:</strong>
+                <ul class="list-group mt-2">
+        `;
+        
+        (folder.files || []).forEach(function(f) {
+            html += `<li class="list-group-item d-flex justify-content-between">
+                <span>${f.name}</span>
+                <small class="text-muted">${formatSize(f.size)}</small>
+            </li>`;
+        });
+        
+        html += `
+                </ul>
+            </div>
+        `;
+        
+        content.html(html);
+        new bootstrap.Modal($('#detail-modal')).show();
+    }
+
+    function showProjectDetail(projectId) {
+        apiGet('/api/projects/' + projectId).then(function(res) {
+            if (res.success && res.project) {
+                const p = res.project;
+                const content = $('#detail-content');
+                
+                let html = `
+                    <div class="row mb-3">
+                        <div class="col-md-6"><strong>项目编号:</strong> ${p.raw_id}</div>
+                        <div class="col-md-6"><strong>数据类型:</strong> ${getDataTypeLabel(p.data_type)}</div>
+                    </div>
+                    <div class="mb-3"><strong>项目名称:</strong> ${p.raw_title}</div>
+                    <div class="mb-3"><strong>物种:</strong> ${p.organism || '-'}</div>
+                    ${p.doi ? `<div class="mb-3"><strong>DOI:</strong> ${p.doi}</div>` : ''}
+                    ${p.description ? `<div class="mb-3"><strong>描述:</strong> ${p.description}</div>` : ''}
+                    <hr>
+                    <div class="mb-2"><strong>文件列表:</strong></div>
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead><tr><th>文件名</th><th>大小</th><th><input type="checkbox" onchange="toggleAllProjectFiles(this)"></th></tr></thead>
+                            <tbody>
+                `;
+                
+                (p.files || []).forEach(function(f) {
+                    html += `<tr>
+                        <td>${f.file_name}</td>
+                        <td>${formatSize(f.file_size)}</td>
+                        <td><input type="checkbox" class="project-file-check" value="${f.file_path}"></td>
+                    </tr>`;
+                });
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                
+                content.html(html);
+                new bootstrap.Modal($('#detail-modal')).show();
+            }
+        });
+    }
+
+    function toggleAllProjectFiles(checkbox) {
+        $('.project-file-check').prop('checked', checkbox.checked);
+    }
+
+    function downloadSelectedFiles() {
+        const selected = [];
+        $('.project-file-check:checked').each(function() {
+            selected.push($(this).val());
+        });
+        
+        if (selected.length === 0) {
+            showToast('请选择要下载的文件', 'warning');
+            return;
+        }
+        
+        showToast('下载功能开发中', 'info');
+    }
+
+    // ==================== 筛选功能 ====================
+    function applyFilter() {
+        const type = $('#filter-project-type').val();
+        const id = $('#filter-project-id').val().trim();
+        
+        let filtered = projects;
+        
+        if (type) {
+            if (type === 'raw') {
+                filtered = filtered.filter(function(p) => p.raw_id);
+            } else {
+                filtered = filtered.filter(function(p) => p.results_id);
+            }
+        }
+        
+        if (id) {
+            filtered = filtered.filter(function(p) {
+                const pid = p.raw_id || p.results_id || '';
+                return pid.toLowerCase().includes(id.toLowerCase());
+            });
+        }
+        
+        const originalProjects = projects;
+        projects = filtered;
+        renderProjectList();
+        projects = originalProjects; // 恢复
+    }
+
+    function resetFilter() {
+        $('#filter-project-type').val('');
+        $('#filter-project-id').val('');
+        loadProjects();
+    }
+
+    // ==================== 工具函数 ====================
+    function refreshFileList() {
+        loadProjects();
+        showToast('列表已刷新', 'success');
+    }
+
+    function formatSize(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+</script>
+{% endblock %}

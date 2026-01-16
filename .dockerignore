@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist
+build
+*.egg
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+Dockerfile
+
+# 环境配置
+.env
+.env.local
+
+# 测试
+*.test
+test_*
+_test.py
+
+# 文档
+*.md
+README.md
+
+# 数据
+*.db
+*.sqlite
+/data/*
+!/data/.gitkeep
+
+# 日志
+*.log
+logs/
+
+# 其他
+.DS_Store
+Thumbs.db

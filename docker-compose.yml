@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  biodata-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: biodata-manager
+    ports:
+      - "20425:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - BIODATA_USE_MOVE_MODE=true
+      - DB_TYPE=mysql
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-biodata}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-biodata123}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-biodata}
+    volumes:
+      - /ssd/bioraw/raw_data:/bioraw/data:rw
+      - /ssd/bioraw/downloads:/bioraw/downloads:rw
+      - /ssd/bioraw/results:/bioraw/results:rw
+      - /ssd/bioraw/analysis:/bioraw/analysis:rw
+      - ./app:/app:rw
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  mysql:
+    image: mysql:lts
+    container_name: biodata-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-biodata}
+      - MYSQL_USER=${MYSQL_USER:-biodata}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-biodata123}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command:
+      - --authentication_policy=caching_sha2_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  default:
+    name: biodata_network

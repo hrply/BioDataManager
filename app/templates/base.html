@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BioData Manager{% endblock %}</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #27ae60;
+        }
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background-color: #f8f9fa;
+        }
+        .navbar-brand {
+            font-weight: 600;
+            color: var(--primary-color) !important;
+        }
+        .nav-link {
+            font-weight: 500;
+            color: var(--primary-color) !important;
+            padding: 0.5rem 1rem !important;
+            margin: 0 0.2rem;
+            border-radius: 0.5rem;
+            transition: all 0.3s ease;
+        }
+        .nav-link:hover {
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+        .nav-link.active {
+            background-color: var(--secondary-color);
+            color: white !important;
+        }
+        .page-header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        .card {
+            border: none;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+        }
+        .card-header {
+            background-color: white;
+            border-bottom: 2px solid #f0f0f0;
+            font-weight: 600;
+        }
+        .btn-primary {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+        .btn-primary:hover {
+            background-color: #2980b9;
+            border-color: #2980b9;
+        }
+        .table {
+            background-color: white;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        .table thead {
+            background-color: #f8f9fa;
+        }
+        .modal-header {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+        }
+        .modal-header .btn-close {
+            filter: invert(1);
+        }
+        .form-label {
+            font-weight: 500;
+            color: var(--primary-color);
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: var(--secondary-color);
+            box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+        }
+        .badge {
+            padding: 0.5em 0.8em;
+        }
+        .pagination .page-link {
+            color: var(--primary-color);
+        }
+        .pagination .page-item.active .page-link {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        .loading-spinner {
+            width: 3rem;
+            height: 3rem;
+        }
+        footer {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 1.5rem 0;
+            margin-top: 3rem;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg bg-white shadow-sm sticky-top">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-database-fill me-2"></i>BioData Manager
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/">
+                            <i class="bi bi-house-door me-1"></i>首页
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'raw_data' %}active{% endif %}" href="/raw-data">
+                            <i class="bi bi-collection me-1"></i>原始数据
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'results' %}active{% endif %}" href="/results">
+                            <i class="bi bi-bar-chart-steps me-1"></i>结果管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'files' %}active{% endif %}" href="/files">
+                            <i class="bi bi-folder2-open me-1"></i>文件管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'metadata' %}active{% endif %}" href="/metadata">
+                            <i class="bi bi-gear me-1"></i>元数据管理
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 页面内容 -->
+    {% block content %}{% endblock %}
+
+    <!-- 页脚 -->
+    <footer class="text-center">
+        <div class="container">
+            <p class="mb-0">BioData Manager - 生物信息学数据管理系统</p>
+            <small class="text-white-50">Powered by Python Flask + Bootstrap 5</small>
+        </div>
+    </footer>
+
+    <!-- Loading 遮罩 -->
+    <div id="loading" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner text-primary" role="status">
+            <i class="bi bi-arrow-repeat spin" style="font-size: 3rem;"></i>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery (可选，用于简化AJAX) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script>
+        // 全局AJAX设置
+        $.ajaxSetup({
+            timeout: 30000,
+            contentType: 'application/json'
+        });
+
+        // Loading 显示/隐藏
+        function showLoading() {
+            $('#loading').fadeIn(200);
+        }
+
+        function hideLoading() {
+            $('#loading').fadeOut(200);
+        }
+
+        // API 调用封装
+        function apiGet(url, params = {}) {
+            showLoading();
+            return $.get(url, params)
+                .always(hideLoading);
+        }
+
+        function apiPost(url, data = {}) {
+            showLoading();
+            return $.post(url, JSON.stringify(data))
+                .always(hideLoading);
+        }
+
+        // Toast 通知
+        function showToast(message, type = 'success') {
+            const toastContainer = $('#toast-container');
+            if (toastContainer.length === 0) {
+                $('body').append(`
+                    <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 9999;"></div>
+                `);
+            }
+            const toastId = 'toast-' + Date.now();
+            const bgClass = type === 'success' ? 'bg-success' :
+                           type === 'error' ? 'bg-danger' :
+                           type === 'warning' ? 'bg-warning' : 'bg-info';
+            $(`#toast-container`).append(`
+                <div id="${toastId}" class="toast ${bgClass} text-white" role="alert">
+                    <div class="toast-header ${bgClass} text-white">
+                        <strong class="me-auto">
+                            <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'error' ? 'x-circle' : 'info-circle'}"></i>
+                            ${type === 'success' ? '成功' : type === 'error' ? '错误' : '提示'}
+                        </strong>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                    </div>
+                    <div class="toast-body">${message}</div>
+                </div>
+            `);
+            const toast = new bootstrap.Toast(document.getElementById(toastId));
+            toast.show();
+            $(`#${toastId}`).on('hidden.bs.toast', function() {
+                $(this).remove();
+            });
+        }
+
+        // 确认对话框
+        function confirmDialog(message, onConfirm) {
+            if (confirm(message)) {
+                onConfirm();
+            }
+        }
+
+        // 初始化
+        $(document).ready(function() {
+            // 初始化所有提示框
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

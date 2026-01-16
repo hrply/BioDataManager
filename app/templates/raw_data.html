@@ -1,0 +1,596 @@
+{% extends "base.html" %}
+
+{% block title %}原始数据 - BioData Manager{% endblock %}
+
+{% block content %}
+<!-- 页面头部 -->
+<div class="page-header">
+    <div class="container">
+        <h1>
+            <i class="bi bi-collection me-3"></i>原始数据管理
+        </h1>
+        <p class="lead">管理测序原始数据、项目元数据与引用文献</p>
+    </div>
+</div>
+
+<div class="container">
+    <!-- 筛选模块 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-funnel me-2"></i>筛选条件
+        </div>
+        <div class="card-body">
+            <div class="row g-3" id="filter-form">
+                <div class="col-md-3">
+                    <label class="form-label">数据类型</label>
+                    <select class="form-select" id="filter-type">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">物种</label>
+                    <select class="form-select" id="filter-species">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">组织来源</label>
+                    <select class="form-select" id="filter-tissue">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end gap-2">
+                    <button class="btn btn-outline-secondary" onclick="resetFilter()">
+                        <i class="bi bi-arrow-clockwise me-1"></i>重置
+                    </button>
+                    <button class="btn btn-primary" onclick="applyFilter()">
+                        <i class="bi bi-search me-1"></i>应用筛选
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 列表模块 -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-list me-2"></i>项目列表</span>
+            <button class="btn btn-primary btn-sm" onclick="showCreateModal()">
+                <i class="bi bi-plus-circle me-1"></i>新建原始数据项目
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>项目编号</th>
+                            <th>数据类型</th>
+                            <th>物种</th>
+                            <th>组织来源</th>
+                            <th>创建时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="project-list">
+                        <tr>
+                            <td colspan="7" class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">加载中...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <span class="text-muted" id="total-count">共 0 条记录</span>
+            <nav aria-label="Page navigation">
+                <ul class="pagination mb-0" id="pagination"></ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- 新建/编辑项目模态框 -->
+<div class="modal fade" id="project-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-title">新建原始数据项目</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="project-form">
+                    <input type="hidden" id="project-id">
+                    <!-- 第一行：项目编号 + 引用文件 -->
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label class="form-label">项目编号</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="project-raw_id" readonly>
+                                <button class="btn btn-outline-secondary" type="button" onclick="generateProjectId()">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button type="button" class="btn btn-outline-primary w-100" onclick="showCitationModal()">
+                                <i class="bi bi-file-earmark-text me-1"></i>引用文件
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 第二行：项目名称 -->
+                    <div class="mb-3">
+                        <label class="form-label">项目名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="project-raw_title" required>
+                    </div>
+                    <!-- 第三行：数据类型 + 物种 -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">数据类型 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="project-raw_type" required></select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">物种 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="project-raw_species" required></select>
+                        </div>
+                    </div>
+                    <!-- 第四行：组织来源 + DOI -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">组织来源</label>
+                            <select class="form-select" id="project-raw_tissue" multiple></select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">DOI</label>
+                            <input type="text" class="form-control" id="project-raw_DOI" placeholder="10.xxxx/xxxxx">
+                        </div>
+                    </div>
+                    <!-- 第五行：数据库编号 + 数据库链接 -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">数据库编号</label>
+                            <input type="text" class="form-control" id="project-raw_db_id">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">数据库链接</label>
+                            <input type="url" class="form-control" id="project-raw_db_link">
+                        </div>
+                    </div>
+                    <!-- 第六行：作者 + 期刊 -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">作者</label>
+                            <input type="text" class="form-control" id="project-raw_author">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">期刊</label>
+                            <input type="text" class="form-control" id="project-raw_article">
+                        </div>
+                    </div>
+                    <!-- 描述 -->
+                    <div class="mb-3">
+                        <label class="form-label">描述</label>
+                        <textarea class="form-control" id="project-raw_description" rows="3"></textarea>
+                    </div>
+                    <!-- 关键词 -->
+                    <div class="mb-0">
+                        <label class="form-label">关键词</label>
+                        <input type="text" class="form-control" id="project-raw_keywords" placeholder="多个关键词用逗号分隔">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveProject()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 查看详情模态框 (单列布局) -->
+<div class="modal fade" id="detail-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="detail-title">项目详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="detail-content">
+                <!-- 详情内容由JS动态填充 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 引用文件解析模态框 -->
+<div class="modal fade" id="citation-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">解析引用文件</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">支持 .bib、.ris、.enw 格式，上传后自动解析并填充元数据</p>
+                <div class="mb-3">
+                    <label class="form-label">选择文件</label>
+                    <input type="file" class="form-control" id="citation-file" accept=".bib,.ris,.enw">
+                </div>
+                <div class="alert alert-info" id="citation-info" style="display: none;">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <span id="citation-msg"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="parseCitationFile()">
+                    <i class="bi bi-file-earmark-text me-1"></i>解析并导入
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let projects = [];
+    let currentPage = 1;
+    const pageSize = 10;
+
+    // 初始化
+    $(document).ready(function() {
+        loadProjects();
+        loadFilterOptions();
+    });
+
+    // 加载筛选选项
+    function loadFilterOptions() {
+        apiGet('/api/metadata/config').then(function(res) {
+            if (res.success && res.config) {
+                const rawFields = res.config.filter(f => f.field_table === 'raw');
+                
+                rawFields.forEach(function(field) {
+                    if (field.field_type === 'select' || field.field_type === 'multi_select') {
+                        const options = field.field_options ? JSON.parse(field.field_options) : [];
+                        const $select = $(`#project-${field.field_id}`);
+                        const $filter = $(`#filter-${field.field_id}`);
+                        
+                        options.forEach(function(opt) {
+                            $select.append(`<option value="${opt.value}">${opt.label}</option>`);
+                            $filter.append(`<option value="${opt.value}">${opt.label}</option>`);
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    // 加载项目列表
+    function loadProjects() {
+        apiGet('/api/projects').then(function(res) {
+            if (res.success) {
+                projects = res.projects || [];
+                renderProjects();
+            }
+        });
+    }
+
+    // 渲染项目列表
+    function renderProjects() {
+        const start = (currentPage - 1) * pageSize;
+        const end = start + pageSize;
+        const pageProjects = projects.slice(start, end);
+        
+        if (pageProjects.length === 0) {
+            $('#project-list').html(`
+                <tr>
+                    <td colspan="7" class="text-center py-4 text-muted">
+                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                        暂无数据
+                    </td>
+                </tr>
+            `);
+        } else {
+            let html = '';
+            pageProjects.forEach(function(p, index) {
+                html += `
+                    <tr>
+                        <td>${start + index + 1}</td>
+                        <td><code>${p.raw_id}</code></td>
+                        <td>${p.raw_type || '-'}</td>
+                        <td>${p.raw_species || '-'}</td>
+                        <td>${p.raw_tissue || '-'}</td>
+                        <td>${p.created_at ? p.created_at.substring(0, 10) : '-'}</td>
+                        <td>
+                            <button class="btn btn-outline-primary btn-sm me-1" onclick="viewDetail('${p.raw_id}')" title="查看详情">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('${p.raw_id}')" title="删除">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            $('#project-list').html(html);
+        }
+        
+        // 更新总数
+        $('#total-count').text(`共 ${projects.length} 条记录`);
+        
+        // 渲染分页
+        renderPagination();
+    }
+
+    // 渲染分页
+    function renderPagination() {
+        const totalPages = Math.ceil(projects.length / pageSize);
+        let html = '';
+        
+        html += `
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">上一页</a>
+            </li>
+        `;
+        
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                html += `
+                    <li class="page-item ${i === currentPage ? 'active' : ''}">
+                        <a class="page-link" href="#" onclick="goToPage(${i}); return false;">${i}</a>
+                    </li>
+                `;
+            } else if (i === currentPage - 3 || i === currentPage + 3) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+        }
+        
+        html += `
+            <li class="page-item ${currentPage === totalPages || totalPages === 0 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">下一页</a>
+            </li>
+        `;
+        
+        $('#pagination').html(html);
+    }
+
+    // 翻页
+    function goToPage(page) {
+        const totalPages = Math.ceil(projects.length / pageSize);
+        if (page >= 1 && page <= totalPages) {
+            currentPage = page;
+            renderProjects();
+        }
+    }
+
+    // 显示新建模态框
+    function showCreateModal() {
+        $('#modal-title').text('新建原始数据项目');
+        $('#project-form')[0].reset();
+        $('#project-id').val('');
+        generateProjectId();
+        
+        // 重新加载选项
+        $('#project-raw_type, #project-raw_species, #project-raw_tissue').empty();
+        loadFilterOptions();
+        
+        new bootstrap.Modal($('#project-modal')).show();
+    }
+
+    // 生成项目编号
+    function generateProjectId() {
+        const uuid = Math.random().toString(36).substring(2, 10).toUpperCase();
+        $('#project-raw_id').val(`RAW-{${uuid}}`);
+    }
+
+    // 保存项目
+    function saveProject() {
+        const data = {
+            raw_id: $('#project-raw_id').val(),
+            raw_title: $('#project-raw_title').val(),
+            raw_type: $('#project-raw_type').val(),
+            raw_species: $('#project-raw_species').val(),
+            raw_tissue: $('#project-raw_tissue').val().join(','),
+            raw_DOI: $('#project-raw_DOI').val(),
+            raw_db_id: $('#project-raw_db_id').val(),
+            raw_db_link: $('#project-raw_db_link').val(),
+            raw_author: $('#project-raw_author').val(),
+            raw_article: $('#project-raw_article').val(),
+            raw_description: $('#project-raw_description').val(),
+            raw_keywords: $('#project-raw_keywords').val()
+        };
+        
+        if (!data.raw_title) {
+            showToast('请填写项目名称', 'warning');
+            return;
+        }
+        
+        const isEdit = $('#project-id').val();
+        
+        if (isEdit) {
+            data.id = $('#project-id').val();
+            apiPost('/api/projects', data).then(function(res) {
+                if (res.success) {
+                    showToast('项目更新成功');
+                    $('#project-modal').modal('hide');
+                    loadProjects();
+                } else {
+                    showToast(res.message || '操作失败', 'error');
+                }
+            });
+        } else {
+            apiPost('/api/projects', data).then(function(res) {
+                if (res.success) {
+                    showToast('项目创建成功');
+                    $('#project-modal').modal('hide');
+                    loadProjects();
+                } else {
+                    showToast(res.message || '操作失败', 'error');
+                }
+            });
+        }
+    }
+
+    // 查看详情
+    function viewDetail(id) {
+        apiGet('/api/project', {id: id}).then(function(res) {
+            if (res.success && res.project) {
+                const p = res.project;
+                $('#detail-title').text(`项目详情 - ${p.raw_id}`);
+                
+                let html = `
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">项目编号</label>
+                            <div class="fw-bold"><code>${p.raw_id}</code></div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">创建时间</label>
+                            <div>${p.created_at || '-'}</div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">数据类型</label>
+                            <div>${p.raw_type || '-'}</div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">物种</label>
+                            <div>${p.raw_species || '-'}</div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">组织来源</label>
+                            <div>${p.raw_tissue || '-'}</div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">DOI</label>
+                            <div>${p.raw_DOI || '-'}</div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">数据库编号</label>
+                            <div>${p.raw_db_id || '-'}</div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">作者</label>
+                            <div>${p.raw_author || '-'}</div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">期刊</label>
+                            <div>${p.raw_article || '-'}</div>
+                        </div>
+                    </div>
+                `;
+                
+                if (p.raw_description) {
+                    html += `
+                        <div class="mt-3">
+                            <label class="text-muted small">描述</label>
+                            <div class="bg-light p-3 rounded">${p.raw_description}</div>
+                        </div>
+                    `;
+                }
+                
+                if (p.raw_keywords) {
+                    const keywords = p.raw_keywords.split(',').map(k => k.trim());
+                    html += `
+                        <div class="mt-3">
+                            <label class="text-muted small">关键词</label>
+                            <div>
+                                ${keywords.map(k => `<span class="badge bg-primary me-1">${k}</span>`).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                $('#detail-content').html(html);
+                new bootstrap.Modal($('#detail-modal')).show();
+            } else {
+                showToast('获取项目详情失败', 'error');
+            }
+        });
+    }
+
+    // 删除项目
+    function deleteProject(id) {
+        if (!confirm(`确定要删除项目 ${id} 吗？此操作不可恢复。`)) {
+            return;
+        }
+        
+        apiPost('/api/delete-project', {id: id}).then(function(res) {
+            if (res.success) {
+                showToast('项目已删除');
+                loadProjects();
+            } else {
+                showToast(res.message || '删除失败', 'error');
+            }
+        });
+    }
+
+    // 显示引用文件模态框
+    function showCitationModal() {
+        $('#citation-file').val('');
+        $('#citation-info').hide();
+        new bootstrap.Modal($('#citation-modal')).show();
+    }
+
+    // 解析引用文件
+    function parseCitationFile() {
+        const fileInput = document.getElementById('citation-file');
+        if (!fileInput.files[0]) {
+            showToast('请选择文件', 'warning');
+            return;
+        }
+        
+        const file = fileInput.files[0];
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        // TODO: 实现引用文件解析API
+        $('#citation-info').show();
+        $('#citation-msg').text(`已选择文件: ${file.name}，解析功能开发中...`);
+        
+        showToast('引用文件解析功能开发中', 'info');
+    }
+
+    // 重置筛选
+    function resetFilter() {
+        $('#filter-type, #filter-species, #filter-tissue').val('');
+        currentPage = 1;
+        loadProjects();
+    }
+
+    // 应用筛选
+    function applyFilter() {
+        const type = $('#filter-type').val();
+        const species = $('#filter-species').val();
+        const tissue = $('#filter-tissue').val();
+        
+        apiGet('/api/projects').then(function(res) {
+            if (res.success) {
+                let filtered = res.projects || [];
+                
+                if (type) {
+                    filtered = filtered.filter(p => p.raw_type === type);
+                }
+                if (species) {
+                    filtered = filtered.filter(p => p.raw_species === species);
+                }
+                if (tissue) {
+                    filtered = filtered.filter(p => p.raw_tissue && p.raw_tissue.includes(tissue));
+                }
+                
+                projects = filtered;
+                currentPage = 1;
+                renderProjects();
+                showToast(`筛选完成，找到 ${projects.length} 条记录`, 'success');
+            }
+        });
+    }
+</script>
+{% endblock %}

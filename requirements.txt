@@ -1,0 +1,14 @@
+# BioData Manager - Python Dependencies
+# 本地依赖（位于 app/libs 目录）
+# - Bootstrap 5 (CSS/JS)
+# - Bootstrap Icons
+# - Chart.js
+
+# Python 包依赖
+flask>=3.0.0
+jinja2>=3.1.0
+markupsafe>=2.1.0
+watchdog>=4.0.0
+mysql-connector-python>=8.2.0
+aiofiles>=23.2.1
+watchgod>=0.8

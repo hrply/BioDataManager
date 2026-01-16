@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}首页 - BioData Manager{% endblock %}
+
+{% block content %}
+<!-- 首页头部 -->
+<div class="page-header">
+    <div class="container">
+        <h1 class="display-4 fw-bold">
+            <i class="bi bi-database-fill me-3"></i>BioData Manager
+        </h1>
+        <p class="lead">生物信息学数据管理系统 - 统一管理原始数据、结果数据与文件资源</p>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="container mb-5">
+    <div class="row g-4">
+        <div class="col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <i class="bi bi-collection fs-1 text-primary"></i>
+                    <h3 class="card-title mt-3" id="raw-count">-</h3>
+                    <p class="card-text text-muted">原始数据项目</p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="/raw-data" class="btn btn-outline-primary btn-sm">查看详情</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <i class="bi bi-bar-chart-steps fs-1 text-success"></i>
+                    <h3 class="card-title mt-3" id="result-count">-</h3>
+                    <p class="card-text text-muted">结果数据项目</p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="/results" class="btn btn-outline-success btn-sm">查看详情</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <i class="bi bi-folder2-open fs-1 text-warning"></i>
+                    <h3 class="card-title mt-3" id="file-count">-</h3>
+                    <p class="card-text text-muted">管理文件数</p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="/files" class="btn btn-outline-warning btn-sm">查看详情</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <i class="bi bi-hdd-network fs-1 text-info"></i>
+                    <h3 class="card-title mt-3" id="storage-used">-</h3>
+                    <p class="card-text text-muted">存储使用量</p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <button class="btn btn-outline-info btn-sm" onclick="refreshStats()">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 功能模块 -->
+<div class="container mb-5">
+    <h2 class="mb-4">
+        <i class="bi bi-grid-3x3-gap-fill me-2"></i>功能模块
+    </h2>
+    <div class="row g-4">
+        <div class="col-md-6 col-lg-3">
+            <a href="/raw-data" class="text-decoration-none">
+                <div class="card h-100 text-center border-primary">
+                    <div class="card-body">
+                        <i class="bi bi-collection fs-1 text-primary"></i>
+                        <h5 class="card-title mt-3">原始数据</h5>
+                        <p class="card-text text-muted small">管理测序原始数据、项目元数据、引用文献</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <a href="/results" class="text-decoration-none">
+                <div class="card h-100 text-center border-success">
+                    <div class="card-body">
+                        <i class="bi bi-bar-chart-steps fs-1 text-success"></i>
+                        <h5 class="card-title mt-3">结果管理</h5>
+                        <p class="card-text text-muted small">管理分析结果、数据可视化、图表导出</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <a href="/files" class="text-decoration-none">
+                <div class="card h-100 text-center border-warning">
+                    <div class="card-body">
+                        <i class="bi bi-folder2-open fs-1 text-warning"></i>
+                        <h5 class="card-title mt-3">文件管理</h5>
+                        <p class="card-text text-muted small">文件分类整理、批量导入导出、存储优化</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <a href="/metadata" class="text-decoration-none">
+                <div class="card h-100 text-center border-info">
+                    <div class="card-body">
+                        <i class="bi bi-gear fs-1 text-info"></i>
+                        <h5 class="card-title mt-3">元数据管理</h5>
+                        <p class="card-text text-muted small">配置字段属性、管理选项列表、定义缩写映射</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- 快速开始 -->
+<div class="container mb-5">
+    <div class="card">
+        <div class="card-header">
+            <i class="bi bi-lightning-charge me-2"></i>快速开始
+        </div>
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h5>开始管理您的生物信息学数据</h5>
+                    <p class="text-muted mb-0">上传原始数据、创建项目、配置元数据字段，一切尽在掌控。</p>
+                </div>
+                <div class="col-md-4 text-md-end">
+                    <a href="/raw-data" class="btn btn-primary me-2">
+                        <i class="bi bi-plus-circle me-1"></i>新建项目
+                    </a>
+                    <a href="/metadata" class="btn btn-outline-secondary">
+                        <i class="bi bi-gear me-1"></i>配置字段
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 加载统计数据
+    function loadStats() {
+        apiGet('/api/projects').then(function(res) {
+            if (res.success) {
+                $('#raw-count').text(res.projects ? res.projects.length : 0);
+            }
+        });
+
+        apiGet('/api/bioresult-projects').then(function(res) {
+            if (res.success) {
+                $('#result-count').text(res.projects ? res.projects.length : 0);
+            }
+        });
+
+        apiGet('/api/processed-data').then(function(res) {
+            if (res.success) {
+                $('#file-count').text(res.data ? res.data.length : 0);
+            }
+        });
+    }
+
+    function refreshStats() {
+        showToast('正在刷新统计数据...', 'info');
+        loadStats();
+    }
+
+    $(document).ready(function() {
+        loadStats();
+    });
+</script>
+{% endblock %}

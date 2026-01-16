@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+
+{% block title %}结果管理 - BioData Manager{% endblock %}
+
+{% block content %}
+<!-- 页面头部 -->
+<div class="page-header">
+    <div class="container">
+        <h1>
+            <i class="bi bi-bar-chart-steps me-3"></i>结果数据管理
+        </h1>
+        <p class="lead">管理分析结果、数据可视化与图表导出</p>
+    </div>
+</div>
+
+<div class="container">
+    <!-- 筛选模块 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-funnel me-2"></i>筛选条件
+        </div>
+        <div class="card-body">
+            <div class="row g-3" id="filter-form">
+                <div class="col-md-3">
+                    <label class="form-label">结果类型</label>
+                    <select class="form-select" id="filter-results_type">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">关联原始数据</label>
+                    <select class="form-select" id="filter-results_raw">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end gap-2">
+                    <button class="btn btn-outline-secondary" onclick="resetFilter()">
+                        <i class="bi bi-arrow-clockwise me-1"></i>重置
+                    </button>
+                    <button class="btn btn-primary" onclick="applyFilter()">
+                        <i class="bi bi-search me-1"></i>应用筛选
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 列表模块 -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-list me-2"></i>结果列表</span>
+            <button class="btn btn-success btn-sm" onclick="showCreateModal()">
+                <i class="bi bi-plus-circle me-1"></i>新建结果项目
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>项目编号</th>
+                            <th>结果名称</th>
+                            <th>结果类型</th>
+                            <th>关联原始数据</th>
+                            <th>创建时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="project-list">
+                        <tr>
+                            <td colspan="7" class="text-center py-4">
+                                <div class="spinner-border text-success" role="status">
+                                    <span class="visually-hidden">加载中...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <span class="text-muted" id="total-count">共 0 条记录</span>
+            <nav aria-label="Page navigation">
+                <ul class="pagination mb-0" id="pagination"></ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- 新建/编辑项目模态框 -->
+<div class="modal fade" id="project-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-title">新建结果项目</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="project-form">
+                    <input type="hidden" id="project-id">
+                    <!-- 第一行：项目编号 -->
+                    <div class="mb-3">
+                        <label class="form-label">项目编号</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="project-results_id" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="generateProjectId()">
+                                <i class="bi bi-arrow-repeat"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 第二行：项目名称 -->
+                    <div class="mb-3">
+                        <label class="form-label">项目名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="project-results_title" required>
+                    </div>
+                    <!-- 第三行：结果类型 + 关联原始数据 -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">结果类型 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="project-results_type" required></select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">关联原始数据</label>
+                            <select class="form-select" id="project-results_raw">
+                                <option value="">无关联</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- 描述 -->
+                    <div class="mb-3">
+                        <label class="form-label">描述</label>
+                        <textarea class="form-control" id="project-results_description" rows="3"></textarea>
+                    </div>
+                    <!-- 关键词 -->
+                    <div class="mb-0">
+                        <label class="form-label">关键词</label>
+                        <input type="text" class="form-control" id="project-results_keywords" placeholder="多个关键词用逗号分隔">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" onclick="saveProject()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 查看详情模态框 (单列布局) -->
+<div class="modal fade" id="detail-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="detail-title">项目详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="detail-content">
+                <!-- 详情内容由JS动态填充 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let projects = [];
+    let currentPage = 1;
+    const pageSize = 10;
+
+    // 初始化
+    $(document).ready(function() {
+        loadProjects();
+        loadFilterOptions();
+    });
+
+    // 加载筛选选项和关联数据
+    function loadFilterOptions() {
+        // 加载结果类型选项
+        apiGet('/api/metadata/config').then(function(res) {
+            if (res.success && res.config) {
+                const resultFields = res.config.filter(f => f.field_table === 'result');
+                
+                resultFields.forEach(function(field) {
+                    if (field.field_type === 'select') {
+                        const options = field.field_options ? JSON.parse(field.field_options) : [];
+                        const $select = $(`#project-${field.field_id}`);
+                        const $filter = $(`#filter-${field.field_id}`);
+                        
+                        options.forEach(function(opt) {
+                            $select.append(`<option value="${opt.value}">${opt.label}</option>`);
+                            $filter.append(`<option value="${opt.value}">${opt.label}</option>`);
+                        });
+                    }
+                });
+            }
+        });
+        
+        // 加载原始数据列表用于关联
+        apiGet('/api/projects').then(function(res) {
+            if (res.success && res.projects) {
+                res.projects.forEach(function(p) {
+                    $('#project-results_raw').append(`<option value="${p.raw_id}">${p.raw_id} - ${p.raw_title}</option>`);
+                    $('#filter-results_raw').append(`<option value="${p.raw_id}">${p.raw_id}</option>`);
+                });
+            }
+        });
+    }
+
+    // 加载项目列表
+    function loadProjects() {
+        apiGet('/api/bioresult-projects').then(function(res) {
+            if (res.success) {
+                projects = res.projects || [];
+                renderProjects();
+            }
+        });
+    }
+
+    // 渲染项目列表
+    function renderProjects() {
+        const start = (currentPage - 1) * pageSize;
+        const end = start + pageSize;
+        const pageProjects = projects.slice(start, end);
+        
+        if (pageProjects.length === 0) {
+            $('#project-list').html(`
+                <tr>
+                    <td colspan="7" class="text-center py-4 text-muted">
+                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                        暂无数据
+                    </td>
+                </tr>
+            `);
+        } else {
+            let html = '';
+            pageProjects.forEach(function(p, index) {
+                html += `
+                    <tr>
+                        <td>${start + index + 1}</td>
+                        <td><code>${p.results_id}</code></td>
+                        <td>${p.results_title || '-'}</td>
+                        <td><span class="badge bg-success">${p.results_type || '-'}</span></td>
+                        <td>${p.results_raw || '-'}</td>
+                        <td>${p.created_at ? p.created_at.substring(0, 10) : '-'}</td>
+                        <td>
+                            <button class="btn btn-outline-success btn-sm me-1" onclick="viewDetail('${p.results_id}')" title="查看详情">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('${p.results_id}')" title="删除">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            $('#project-list').html(html);
+        }
+        
+        $('#total-count').text(`共 ${projects.length} 条记录`);
+        renderPagination();
+    }
+
+    // 渲染分页
+    function renderPagination() {
+        const totalPages = Math.ceil(projects.length / pageSize);
+        let html = '';
+        
+        html += `
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">上一页</a>
+            </li>
+        `;
+        
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                html += `
+                    <li class="page-item ${i === currentPage ? 'active' : ''}">
+                        <a class="page-link" href="#" onclick="goToPage(${i}); return false;">${i}</a>
+                    </li>
+                `;
+            } else if (i === currentPage - 3 || i === currentPage + 3) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+        }
+        
+        html += `
+            <li class="page-item ${currentPage === totalPages || totalPages === 0 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">下一页</a>
+            </li>
+        `;
+        
+        $('#pagination').html(html);
+    }
+
+    // 翻页
+    function goToPage(page) {
+        const totalPages = Math.ceil(projects.length / pageSize);
+        if (page >= 1 && page <= totalPages) {
+            currentPage = page;
+            renderProjects();
+        }
+    }
+
+    // 显示新建模态框
+    function showCreateModal() {
+        $('#modal-title').text('新建结果项目');
+        $('#project-form')[0].reset();
+        $('#project-id').val('');
+        generateProjectId();
+        
+        // 重新加载选项
+        $('#project-results_type, #project-results_raw').empty().append('<option value="">无关联</option>');
+        loadFilterOptions();
+        
+        new bootstrap.Modal($('#project-modal')).show();
+    }
+
+    // 生成项目编号
+    function generateProjectId() {
+        const uuid = Math.random().toString(36).substring(2, 10).toUpperCase();
+        $('#project-results_id').val(`RES-{${uuid}}`);
+    }
+
+    // 保存项目
+    function saveProject() {
+        const data = {
+            results_id: $('#project-results_id').val(),
+            results_title: $('#project-results_title').val(),
+            results_type: $('#project-results_type').val(),
+            results_raw: $('#project-results_raw').val() || null,
+            results_description: $('#project-results_description').val(),
+            results_keywords: $('#project-results_keywords').val(),
+            action: $('#project-id').val() ? 'update' : 'create'
+        };
+        
+        if (!data.results_title) {
+            showToast('请填写项目名称', 'warning');
+            return;
+        }
+        
+        if ($('#project-id').val()) {
+            data.id = $('#project-id').val();
+        }
+        
+        apiPost('/api/bioresult-project', data).then(function(res) {
+            if (res.success) {
+                showToast($('#project-id').val() ? '项目更新成功' : '项目创建成功');
+                $('#project-modal').modal('hide');
+                loadProjects();
+            } else {
+                showToast(res.message || '操作失败', 'error');
+            }
+        });
+    }
+
+    // 查看详情
+    function viewDetail(id) {
+        const project = projects.find(p => p.results_id === id);
+        if (project) {
+            $('#detail-title').text(`项目详情 - ${project.results_id}`);
+            
+            let html = `
+                <div class="row">
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">项目编号</label>
+                        <div class="fw-bold"><code>${project.results_id}</code></div>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">创建时间</label>
+                        <div>${project.created_at || '-'}</div>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">结果类型</label>
+                        <div><span class="badge bg-success">${project.results_type || '-'}</span></div>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">关联原始数据</label>
+                        <div>${project.results_raw || '无关联'}</div>
+                    </div>
+                </div>
+            `;
+            
+            if (project.results_description) {
+                html += `
+                    <div class="mt-3">
+                        <label class="text-muted small">描述</label>
+                        <div class="bg-light p-3 rounded">${project.results_description}</div>
+                    </div>
+                `;
+            }
+            
+            if (project.results_keywords) {
+                const keywords = project.results_keywords.split(',').map(k => k.trim());
+                html += `
+                    <div class="mt-3">
+                        <label class="text-muted small">关键词</label>
+                        <div>
+                            ${keywords.map(k => `<span class="badge bg-success me-1">${k}</span>`).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            $('#detail-content').html(html);
+            new bootstrap.Modal($('#detail-modal')).show();
+        }
+    }
+
+    // 删除项目
+    function deleteProject(id) {
+        if (!confirm(`确定要删除项目 ${id} 吗？此操作不可恢复。`)) {
+            return;
+        }
+        
+        apiPost('/api/bioresult-project', {id: id, action: 'delete'}).then(function(res) {
+            if (res.success) {
+                showToast('项目已删除');
+                loadProjects();
+            } else {
+                showToast(res.message || '删除失败', 'error');
+            }
+        });
+    }
+
+    // 重置筛选
+    function resetFilter() {
+        $('#filter-results_type, #filter-results_raw').val('');
+        currentPage = 1;
+        loadProjects();
+    }
+
+    // 应用筛选
+    function applyFilter() {
+        const type = $('#filter-results_type').val();
+        const raw = $('#filter-results_raw').val();
+        
+        apiGet('/api/bioresult-projects').then(function(res) {
+            if (res.success) {
+                let filtered = res.projects || [];
+                
+                if (type) {
+                    filtered = filtered.filter(p => p.results_type === type);
+                }
+                if (raw) {
+                    filtered = filtered.filter(p => p.results_raw === raw);
+                }
+                
+                projects = filtered;
+                currentPage = 1;
+                renderProjects();
+                showToast(`筛选完成，找到 ${projects.length} 条记录`, 'success');
+            }
+        });
+    }
+</script>
+{% endblock %}
