@@ -95,11 +95,10 @@ class BioDataManager:
         self.db_manager = db_manager
         self.config_manager = config_manager
         
-        # 路径配置
+        # 路径配置（数据库设计规范要求）
         self.data_dir = Path("/bioraw/data")
         self.downloads_dir = Path("/bioraw/downloads")
         self.results_dir = Path("/bioraw/results")
-        self.analysis_dir = Path("/bioraw/analysis")
         
         # 基础数据目录
         self.base_data_dir = Path("/ssd/bioraw/raw_data")
@@ -282,6 +281,9 @@ class BioDataManager:
                 project = dict(zip(field_names, row))
                 project['path'] = str(self.base_data_dir / f"{project['id']}_{project['title']}")
                 
+                # 兼容性字段名
+                project['raw_id'] = project['id']
+                
                 # 格式化显示
                 project['data_type_label'] = self.get_data_type_label(project.get('data_type', ''))
                 project['organism_label'] = self.get_organism_label(project.get('organism', ''))
@@ -386,6 +388,28 @@ class BioDataManager:
         
         return True
     
+    def delete_bioresult_project(self, project_id: str) -> bool:
+        """删除结果项目"""
+        try:
+            # 获取项目信息
+            project = self.get_bioresult_project_by_id(project_id)
+            if not project:
+                return False
+            
+            # 删除数据库记录
+            self.db_manager.execute("DELETE FROM processed_files WHERE project_id = %s", (project_id,))
+            self.db_manager.execute("DELETE FROM bioresult_projects WHERE id = %s", (project_id,))
+            
+            # 删除项目目录
+            project_path = Path(self.results_dir) / f"{project_id}_{project.get('title', '')}"
+            if project_path.exists():
+                shutil.rmtree(project_path)
+            
+            return True
+        except Exception as e:
+            print(f"删除结果项目失败: {e}")
+            return False
+    
     def delete_project(self, project_id: str) -> bool:
         """删除项目"""
         try:
@@ -413,16 +437,9 @@ class BioDataManager:
         if not data_type:
             return "未分类"
         
-        # 处理逗号分隔的多值
+        # 处理逗号分隔的多值，直接返回原始值（避免导入不存在的常量）
         types = [t.strip() for t in data_type.split(',')]
-        labels = []
-        
-        from server import DATA_TYPE_LABELS
-        for t in types:
-            label = DATA_TYPE_LABELS.get(t, t)
-            labels.append(label)
-        
-        return ', '.join(labels) if labels else "未分类"
+        return ', '.join(types) if types else "未分类"
     
     def get_organism_label(self, organism: str) -> str:
         """获取物种显示标签"""
@@ -660,8 +677,6 @@ class BioDataManager:
     
     def get_all_bioresult_projects(self) -> List[Dict]:
         """获取所有生物结果项目"""
-        from server import ANALYSIS_TYPE_LABELS
-        
         projects = self.db_manager.query("""
             SELECT * FROM bioresult_projects ORDER BY created_date DESC
         """)
@@ -680,7 +695,9 @@ class BioDataManager:
                 'created_date': row[8],
                 'path': row[9]
             }
-            project['analysis_type_label'] = ANALYSIS_TYPE_LABELS.get(project.get('analysis_type', ''), project.get('analysis_type', ''))
+            # 兼容性字段名
+            project['results_id'] = project['id']
+            project['analysis_type_label'] = project.get('analysis_type', '')
             result.append(project)
         
         return result
@@ -762,97 +779,6 @@ class BioDataManager:
             ['id', 'project_id', 'file_name', 'file_path', 'file_type', 'file_size', 'indexed_at'],
             row
         )) for row in data]
-    
-    def scan_analysis(self) -> List[Dict]:
-        """扫描分析目录"""
-        analysis_data = []
-        
-        if not self.analysis_dir.exists():
-            return analysis_data
-        
-        for folder in self.analysis_dir.iterdir():
-            if folder.is_dir() and not folder.name.startswith('.'):
-                readme_path = folder / "README.md"
-                if readme_path.exists():
-                    analysis_info = self._parse_analysis_folder(folder, readme_path)
-                    if analysis_info:
-                        analysis_data.append(analysis_info)
-        
-        return analysis_data
-    
-    def _parse_analysis_folder(self, folder: Path, readme_path: Path) -> Optional[Dict]:
-        """解析分析文件夹"""
-        try:
-            with open(readme_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # 解析YAML前置元数据
-            metadata = {}
-            yaml_match = re.search(r'^---\n(.*?)\n---\n', content, re.DOTALL)
-            if yaml_match:
-                yaml_content = yaml_match.group(1)
-                for line in yaml_content.split('\n'):
-                    if ':' in line:
-                        key, value = line.split(':', 1)
-                        metadata[key.strip()] = value.strip()
-            
-            # 提取文件列表
-            files = []
-            for f in folder.iterdir():
-                if f.is_file() and f.name != "README.md":
-                    files.append({
-                        'name': f.name,
-                        'size': self._format_size(f.stat().st_size),
-                        'path': str(f)
-                    })
-            
-            return {
-                'name': folder.name,
-                'path': str(folder),
-                'metadata': metadata,
-                'files': files,
-                'file_count': len(files)
-            }
-        except Exception as e:
-            print(f"解析分析文件夹失败: {e}")
-            return None
-    
-    def import_analysis_folder(self, folder_path: str) -> Dict:
-        """导入分析文件夹"""
-        folder = Path(folder_path)
-        readme_path = folder / "README.md"
-        
-        if not folder.exists():
-            return {'success': False, 'message': '文件夹不存在'}
-        
-        if not readme_path.exists():
-            return {'success': False, 'message': '缺少README.md文件'}
-        
-        # 解析文件夹信息
-        analysis_info = self._parse_analysis_folder(folder, readme_path)
-        if not analysis_info:
-            return {'success': False, 'message': '无法解析文件夹'}
-        
-        # 创建处理数据记录
-        for file_info in analysis_info['files']:
-            file_path = Path(file_info['path'])
-            if file_path.exists():
-                self.db_manager.execute("""
-                    INSERT INTO processed_files (project_id, file_name, file_path, file_type, file_size)
-                    VALUES (%s, %s, %s, %s, %s)
-                """, (
-                    analysis_info['metadata'].get('project_id', ''),
-                    file_info['name'],
-                    file_info['path'],
-                    self._get_file_type(file_info['name']),
-                    file_path.stat().st_size
-                ))
-        
-        return {
-            'success': True,
-            'imported': len(analysis_info['files']),
-            'folder': analysis_info['name']
-        }
     
     def _get_file_type(self, filename: str) -> str:
         """获取文件类型"""

@@ -1,0 +1,27 @@
+{
+  "name": "biodata_manager",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hrply/BioDataManager.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/hrply/BioDataManager/issues"
+  },
+  "homepage": "https://github.com/hrply/BioDataManager#readme",
+  "dependencies": {
+    "bootstrap-icons": "^1.13.1"
+  }
+}

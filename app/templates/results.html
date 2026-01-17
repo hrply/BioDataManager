@@ -68,13 +68,33 @@
                         </tr>
                     </thead>
                     <tbody id="project-list">
+                        {% if bioresult_projects %}
+                        {% for p in bioresult_projects %}
                         <tr>
-                            <td colspan="7" class="text-center py-4">
-                                <div class="spinner-border text-success" role="status">
-                                    <span class="visually-hidden">加载中...</span>
-                                </div>
+                            <td>{{ loop.index }}</td>
+                            <td><code>{{ p.id }}</code></td>
+                            <td>{{ p.title }}</td>
+                            <td><span class="badge bg-success">{{ p.analysis_type or '-' }}</span></td>
+                            <td>{{ p.data_type or '-' }}</td>
+                            <td>{{ p.created_date[:10] if p.created_date else '-' }}</td>
+                            <td>
+                                <button class="btn btn-outline-success btn-sm me-1" onclick="viewDetail('{{ p.id }}')" title="查看详情">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('{{ p.id }}')" title="删除">
+                                    <i class="bi bi-trash"></i>
+                                </button>
                             </td>
                         </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center py-4 text-muted">
+                                <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                                暂无数据
+                            </td>
+                        </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>

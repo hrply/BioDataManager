@@ -73,13 +73,33 @@
                     <div class="table-responsive">
                         <table class="table table-hover mb-0">
                             <tbody id="raw-field-list">
+                                {% if raw_configs %}
+                                {% for field in raw_configs %}
                                 <tr>
-                                    <td colspan="7" class="text-center py-4">
-                                        <div class="spinner-border text-primary" role="status">
-                                            <span class="visually-hidden">加载中...</span>
-                                        </div>
+                                    <td class="sort-handle" style="width: 50px;"><i class="bi bi-grip-vertical"></i></td>
+                                    <td><code>{{ field.field_id }}</code></td>
+                                    <td>{{ field.field_name }}</td>
+                                    <td>{{ field.field_type }}</td>
+                                    <td>{{ '是' if field.required else '否' }}</td>
+                                    <td>{{ field.options_count or 0 }}</td>
+                                    <td>
+                                        <button class="btn btn-outline-primary btn-sm" onclick="editField('raw', '{{ field.id }}')">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteField('{{ field.id }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </td>
                                 </tr>
+                                {% endfor %}
+                                {% else %}
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">
+                                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                                        暂无字段配置
+                                    </td>
+                                </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>
@@ -105,13 +125,33 @@
                     <div class="table-responsive">
                         <table class="table table-hover mb-0">
                             <tbody id="result-field-list">
+                                {% if result_configs %}
+                                {% for field in result_configs %}
                                 <tr>
-                                    <td colspan="7" class="text-center py-4">
-                                        <div class="spinner-border text-success" role="status">
-                                            <span class="visually-hidden">加载中...</span>
-                                        </div>
+                                    <td class="sort-handle" style="width: 50px;"><i class="bi bi-grip-vertical"></i></td>
+                                    <td><code>{{ field.field_id }}</code></td>
+                                    <td>{{ field.field_name }}</td>
+                                    <td>{{ field.field_type }}</td>
+                                    <td>{{ '是' if field.required else '否' }}</td>
+                                    <td>{{ field.options_count or 0 }}</td>
+                                    <td>
+                                        <button class="btn btn-outline-success btn-sm" onclick="editField('result', '{{ field.id }}')">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteField('{{ field.id }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </td>
                                 </tr>
+                                {% endfor %}
+                                {% else %}
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">
+                                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                                        暂无字段配置
+                                    </td>
+                                </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>
@@ -137,13 +177,33 @@
                     <div class="table-responsive">
                         <table class="table table-hover mb-0">
                             <tbody id="file-field-list">
+                                {% if file_configs %}
+                                {% for field in file_configs %}
                                 <tr>
-                                    <td colspan="7" class="text-center py-4">
-                                        <div class="spinner-border text-warning" role="status">
-                                            <span class="visually-hidden">加载中...</span>
-                                        </div>
+                                    <td class="sort-handle" style="width: 50px;"><i class="bi bi-grip-vertical"></i></td>
+                                    <td><code>{{ field.field_id }}</code></td>
+                                    <td>{{ field.field_name }}</td>
+                                    <td>{{ field.field_type }}</td>
+                                    <td>{{ '是' if field.required else '否' }}</td>
+                                    <td>{{ field.options_count or 0 }}</td>
+                                    <td>
+                                        <button class="btn btn-outline-warning btn-sm" onclick="editField('file', '{{ field.id }}')">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteField('{{ field.id }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </td>
                                 </tr>
+                                {% endfor %}
+                                {% else %}
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">
+                                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                                        暂无字段配置
+                                    </td>
+                                </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>
@@ -190,11 +250,30 @@
                                 </tr>
                             </thead>
                             <tbody id="abbr-list">
+                                {% if abbr_mappings %}
+                                {% for abbr in abbr_mappings %}
                                 <tr>
-                                    <td colspan="4" class="text-center py-4 text-muted">
-                                        加载中...
+                                    <td>{{ abbr.field_name or abbr.field_id }}</td>
+                                    <td>{{ abbr.full_name }}</td>
+                                    <td><code>{{ abbr.abbr }}</code></td>
+                                    <td>
+                                        <button class="btn btn-outline-info btn-sm" onclick="editAbbr('{{ abbr.id }}')">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteAbbr('{{ abbr.id }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </td>
                                 </tr>
+                                {% endfor %}
+                                {% else %}
+                                <tr>
+                                    <td colspan="4" class="text-center py-4 text-muted">
+                                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                                        暂无缩写映射
+                                    </td>
+                                </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>

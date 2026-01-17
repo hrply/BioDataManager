@@ -28,7 +28,7 @@ class MetadataConfigManager:
         
         try:
             results = self.db_manager.query("""
-                SELECT id, field_name, label, field_type, options, required, sort_order, created_at, updated_at
+                SELECT id, field_name, label, field_type, options, required, sort_order, field_table, data_type, created_at, updated_at
                 FROM metadata_config
                 ORDER BY sort_order ASC, id ASC
             """)
@@ -43,8 +43,10 @@ class MetadataConfigManager:
                     'options': row[4],
                     'required': bool(row[5]),
                     'sort_order': row[6],
-                    'created_at': str(row[7]) if row[7] else None,
-                    'updated_at': str(row[8]) if row[8] else None
+                    'field_table': row[7],
+                    'data_type': row[8],
+                    'created_at': str(row[9]) if row[9] else None,
+                    'updated_at': str(row[10]) if row[10] else None
                 }
                 
                 # 解析options JSON
@@ -71,7 +73,7 @@ class MetadataConfigManager:
         
         try:
             row = self.db_manager.query_one("""
-                SELECT id, field_name, label, field_type, options, required, sort_order
+                SELECT id, field_name, label, field_type, options, required, sort_order, field_table, data_type
                 FROM metadata_config WHERE field_name = %s
             """, (field_name,))
             
@@ -83,12 +85,66 @@ class MetadataConfigManager:
                     'field_type': row[3],
                     'options': row[4],
                     'required': bool(row[5]),
-                    'sort_order': row[6]
+                    'sort_order': row[6],
+                    'field_table': row[7],
+                    'data_type': row[8]
                 }
             return None
         except Exception as e:
             print(f"获取字段配置失败: {e}")
             return None
+    
+    def get_configs_by_table(self, field_table: str, data_type: str = None) -> List[Dict]:
+        """根据表类型获取配置"""
+        if not self.db_manager:
+            return []
+        
+        try:
+            if data_type:
+                results = self.db_manager.query("""
+                    SELECT id, field_name, label, field_type, options, required, sort_order, field_table, data_type
+                    FROM metadata_config
+                    WHERE field_table = %s AND (data_type = %s OR data_type IS NULL OR data_type = '')
+                    ORDER BY sort_order ASC, id ASC
+                """, (field_table, data_type))
+            else:
+                results = self.db_manager.query("""
+                    SELECT id, field_name, label, field_type, options, required, sort_order, field_table, data_type
+                    FROM metadata_config
+                    WHERE field_table = %s
+                    ORDER BY sort_order ASC, id ASC
+                """, (field_table,))
+            
+            configs = []
+            for row in results:
+                config = {
+                    'id': row[0],
+                    'field_name': row[1],
+                    'label': row[2],
+                    'field_type': row[3],
+                    'options': row[4],
+                    'required': bool(row[5]),
+                    'sort_order': row[6],
+                    'field_table': row[7],
+                    'data_type': row[8]
+                }
+                
+                # 解析options JSON
+                if config['options']:
+                    import json
+                    try:
+                        config['options'] = json.loads(config['options'])
+                    except (json.JSONDecodeError, TypeError):
+                        config['options'] = []
+                else:
+                    config['options'] = []
+                
+                configs.append(config)
+            
+            return configs
+        except Exception as e:
+            print(f"获取表类型配置失败: {e}")
+            return []
     
     def get_config_by_id(self, config_id: int) -> Optional[Dict]:
         """根据ID获取配置"""

@@ -30,7 +30,8 @@ class DatabaseManager:
             'database': os.environ.get('MYSQL_DATABASE', 'biodata'),
             'charset': 'utf8mb4',
             'collation': 'utf8mb4_unicode_ci',
-            'autocommit': False
+            'autocommit': False,
+            'connection_timeout': 30
         }
     
     def connect(self) -> bool:
@@ -43,12 +44,12 @@ class DatabaseManager:
             
             if self.connection.is_connected():
                 db_info = self.connection.get_server_info()
-                print(f"成功连接到MySQL数据库，版本: {db_info}")
+                print(f"已连接到MySQL数据库 (版本 {db_info})")
                 return True
             
             return False
-        except Error as e:
-            print(f"连接MySQL数据库失败: {e}")
+        except Error:
+            # 连接失败时静默处理（由调用方决定是否显示错误）
             return False
     
     def disconnect(self):
@@ -60,13 +61,27 @@ class DatabaseManager:
     
     def get_connection(self):
         """获取数据库连接"""
-        if not self.connection or not self.connection.is_connected():
-            self.connect()
-        return self.connection
+        if self.connection and self.connection.is_connected():
+            try:
+                # 测试连接是否仍然有效
+                self.connection.ping(reconnect=True, attempts=3, delay=1)
+                return self.connection
+            except Error:
+                # 连接已断开，尝试重连
+                self.connection = None
+        
+        # 尝试连接
+        if self.connect():
+            return self.connection
+        # 连接失败，返回None（由调用方处理）
+        return None
     
     def execute(self, query: str, params: Tuple = None) -> bool:
         """执行SQL语句（INSERT, UPDATE, DELETE）"""
         connection = self.get_connection()
+        if connection is None:
+            return False
+        
         cursor = connection.cursor()
         
         try:
@@ -75,8 +90,6 @@ class DatabaseManager:
             return True
         except Error as e:
             print(f"执行SQL失败: {e}")
-            print(f"SQL: {query}")
-            print(f"参数: {params}")
             connection.rollback()
             return False
         finally:
@@ -85,6 +98,9 @@ class DatabaseManager:
     def query_one(self, query: str, params: Tuple = None) -> Optional[Tuple]:
         """查询单条记录"""
         connection = self.get_connection()
+        if connection is None:
+            return None
+        
         cursor = connection.cursor()
         
         try:
@@ -100,6 +116,9 @@ class DatabaseManager:
     def query(self, query: str, params: Tuple = None) -> List[Tuple]:
         """查询多条记录"""
         connection = self.get_connection()
+        if connection is None:
+            return []
+        
         cursor = connection.cursor()
         
         try:
@@ -115,6 +134,9 @@ class DatabaseManager:
     def execute_many(self, query: str, params_list: List[Tuple]) -> bool:
         """批量执行SQL语句"""
         connection = self.get_connection()
+        if connection is None:
+            return False
+        
         cursor = connection.cursor()
         
         try:
@@ -131,6 +153,10 @@ class DatabaseManager:
     def create_tables(self):
         """创建所有数据表"""
         connection = self.get_connection()
+        if connection is None:
+            print("无法创建表：数据库未连接")
+            return
+        
         cursor = connection.cursor()
         
         try:

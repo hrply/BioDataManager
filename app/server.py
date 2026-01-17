@@ -23,21 +23,45 @@ from backend import BioDataManager
 from database_mysql import DatabaseManager
 from metadata_config_manager_mysql import MetadataConfigManager
 
-# 硬编码路径配置
+# 硬编码路径配置（数据库设计规范要求）
 BIORAW_BASE_DIR = Path("/bioraw")
 DATA_DIR = BIORAW_BASE_DIR / "data"
 DOWNLOADS_DIR = BIORAW_BASE_DIR / "downloads"
 RESULTS_DIR = BIORAW_BASE_DIR / "results"
-ANALYSIS_DIR = BIORAW_BASE_DIR / "analysis"
 
 # Flask 应用配置
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
-# 初始化数据库连接
-db_manager = DatabaseManager()
-config_manager = MetadataConfigManager(db_manager)
-manager = BioDataManager(db_manager, config_manager)
+# 延迟初始化
+_db_manager = None
+_config_manager = None
+_manager = None
+
+def get_db_manager():
+    """获取数据库管理器，延迟初始化"""
+    global _db_manager
+    if _db_manager is None:
+        _db_manager = DatabaseManager()
+    return _db_manager
+
+def get_config_manager():
+    """获取配置管理器，延迟初始化"""
+    global _config_manager
+    if _config_manager is None:
+        _config_manager = MetadataConfigManager(get_db_manager())
+    return _config_manager
+
+def get_manager():
+    """获取业务管理器，延迟初始化"""
+    global _manager
+    if _manager is None:
+        try:
+            _manager = BioDataManager(get_db_manager(), get_config_manager())
+        except Exception as e:
+            print(f"警告: 业务管理器初始化失败: {e}")
+            _manager = None
+    return _manager
 
 # ==================== 异步任务管理 ====================
 
@@ -93,20 +117,8 @@ def run_scan_downloads_task(task_id: str):
     """在后台线程中执行扫描下载目录"""
     try:
         update_task(task_id, status='running', progress=10, message='正在扫描下载目录...')
-        result = manager.scan_downloads()
+        result = get_manager().scan_downloads()
         update_task(task_id, status='completed', progress=100, 
-                   message=f'扫描完成，找到 {len(result)} 个文件夹',
-                   result=result)
-    except Exception as e:
-        update_task(task_id, status='failed', error=str(e))
-
-
-def run_scan_analysis_task(task_id: str):
-    """在后台线程中执行扫描分析目录"""
-    try:
-        update_task(task_id, status='running', progress=10, message='正在扫描分析目录...')
-        result = manager.scan_analysis()
-        update_task(task_id, status='completed', progress=100,
                    message=f'扫描完成，找到 {len(result)} 个文件夹',
                    result=result)
     except Exception as e:
@@ -124,25 +136,84 @@ def index():
 @app.route('/raw-data')
 def raw_data():
     """原始数据页面"""
-    return render_template('raw_data.html')
+    projects = []
+    try:
+        mgr = get_manager()
+        if mgr:
+            projects = mgr.get_all_projects()
+    except Exception as e:
+        print(f"获取原始数据项目列表失败: {e}")
+    return render_template('raw_data.html', projects=projects)
 
 
 @app.route('/results')
 def results():
     """结果管理页面"""
-    return render_template('results.html')
+    bioresult_projects = []
+    try:
+        mgr = get_manager()
+        if mgr:
+            bioresult_projects = mgr.get_all_bioresult_projects()
+    except Exception as e:
+        print(f"获取结果项目列表失败: {e}")
+    return render_template('results.html', bioresult_projects=bioresult_projects)
 
 
 @app.route('/files')
 def files():
     """文件管理页面"""
-    return render_template('files.html')
+    projects = []
+    try:
+        mgr = get_manager()
+        if mgr:
+            projects = mgr.get_all_projects()
+            # 添加显示标签
+            for p in projects:
+                p['data_type_label'] = p.get('data_type', '未分类')
+    except Exception as e:
+        print(f"获取项目列表失败: {e}")
+    return render_template('files.html', projects=projects)
 
 
 @app.route('/metadata')
 def metadata():
     """元数据管理页面"""
-    return render_template('metadata.html')
+    raw_configs = []
+    result_configs = []
+    file_configs = []
+    abbr_mappings = []
+    try:
+        config_mgr = get_config_manager()
+        if config_mgr:
+            all_configs = config_mgr.get_all_configs()
+            for c in all_configs:
+                # 计算选项数量
+                options_count = 0
+                if c.get('field_options'):
+                    try:
+                        options = json.loads(c['field_options'])
+                        options_count = len(options) if isinstance(options, list) else 0
+                    except:
+                        pass
+                c['options_count'] = options_count
+                
+                if c.get('field_table') == 'raw':
+                    raw_configs.append(c)
+                elif c.get('field_table') == 'result':
+                    result_configs.append(c)
+                elif c.get('field_table') == 'file':
+                    file_configs.append(c)
+            
+            # 简化缩写映射（这里只是占位，实际需要单独的表）
+            abbr_mappings = []
+    except Exception as e:
+        print(f"获取元数据配置失败: {e}")
+    
+    return render_template('metadata.html', 
+                           raw_configs=raw_configs,
+                           result_configs=result_configs,
+                           file_configs=file_configs,
+                           abbr_mappings=abbr_mappings)
 
 
 # ==================== 静态文件路由 ====================
@@ -167,7 +238,7 @@ def serve_lib(filename):
 def api_get_projects():
     """获取所有项目"""
     try:
-        projects = manager.get_all_projects()
+        projects = get_manager().get_all_projects()
         return jsonify({'success': True, 'projects': projects})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -180,7 +251,7 @@ def api_get_project():
     if not project_id:
         return jsonify({'success': False, 'message': '缺少项目ID'})
     try:
-        project = manager.get_project_by_id(project_id)
+        project = get_manager().get_project_by_id(project_id)
         if project:
             return jsonify({'success': True, 'project': project})
         else:
@@ -194,7 +265,7 @@ def api_create_project():
     """创建新项目"""
     try:
         data = request.get_json()
-        project = manager.create_project(data)
+        project = get_manager().create_project(data)
         return jsonify({'success': True, 'project': project})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -205,7 +276,7 @@ def api_update_project():
     """更新项目"""
     try:
         data = request.get_json()
-        success = manager.update_project(data)
+        success = get_manager().update_project(data)
         return jsonify({'success': success})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -213,14 +284,24 @@ def api_update_project():
 
 @app.route('/api/delete-project', methods=['POST'])
 def api_delete_project():
-    """删除项目"""
+    """删除项目（原始数据或结果数据）"""
     try:
         data = request.get_json()
         project_id = data.get('id')
         if not project_id:
             return jsonify({'success': False, 'message': '缺少项目ID'})
-        success = manager.delete_project(project_id)
-        return jsonify({'success': success})
+        
+        # 优先尝试删除原始数据项目
+        success = get_manager().delete_project(project_id)
+        
+        # 如果原始数据项目删除失败，尝试删除结果项目
+        if not success:
+            success = get_manager().delete_bioresult_project(project_id)
+        
+        if not success:
+            return jsonify({'success': False, 'message': '项目不存在或删除失败'})
+        
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -231,7 +312,7 @@ def api_delete_project():
 def api_get_bioresult_projects():
     """获取生物结果项目"""
     try:
-        projects = manager.get_all_bioresult_projects()
+        projects = get_manager().get_all_bioresult_projects()
         return jsonify({'success': True, 'projects': projects})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -244,14 +325,14 @@ def api_bioresult_project():
         data = request.get_json()
         action = data.get('action', 'create')
         if action == 'create':
-            project = manager.create_bioresult_project(data)
+            project = get_manager().create_bioresult_project(data)
             return jsonify({'success': True, 'project': project})
         elif action == 'update':
-            success = manager.update_bioresult_project(data)
+            success = get_manager().update_bioresult_project(data)
             return jsonify({'success': success})
         elif action == 'delete':
             project_id = data.get('id')
-            success = manager.delete_bioresult_project(project_id)
+            success = get_manager().delete_bioresult_project(project_id)
             return jsonify({'success': success})
         else:
             return jsonify({'success': False, 'message': '未知操作'})
@@ -282,7 +363,7 @@ def api_scan_downloads():
 def api_scan_downloads_sync():
     """扫描下载目录 - 同步版本(保留兼容)"""
     try:
-        projects = manager.scan_downloads()
+        projects = get_manager().scan_downloads()
         return jsonify({'success': True, 'projects': projects})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -297,7 +378,7 @@ def api_import_download():
         files = data.get('files', [])
         if not project_id or not files:
             return jsonify({'success': False, 'message': '缺少参数'})
-        result = manager.import_download_files(project_id, files)
+        result = get_manager().import_download_files(project_id, files)
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -311,7 +392,7 @@ def api_organize_files():
         project_id = data.get('project_id')
         if not project_id:
             return jsonify({'success': False, 'message': '缺少项目ID'})
-        result = manager.organize_project_files(project_id)
+        result = get_manager().organize_project_files(project_id)
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -321,7 +402,7 @@ def api_organize_files():
 def api_directory_tree():
     """获取目录树"""
     try:
-        tree = manager.get_directory_tree(str(DOWNLOADS_DIR))
+        tree = get_manager().get_directory_tree(str(DOWNLOADS_DIR))
         return jsonify({'success': True, 'tree': tree})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -331,7 +412,7 @@ def api_directory_tree():
 def api_get_processed_data():
     """获取处理数据列表"""
     try:
-        data = manager.get_all_processed_data()
+        data = get_manager().get_all_processed_data()
         return jsonify({'success': True, 'data': data})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -346,50 +427,7 @@ def api_import_processed_file():
         file_path = data.get('file_path')
         if not project_id or not file_path:
             return jsonify({'success': False, 'message': '缺少参数'})
-        result = manager.import_processed_file(project_id, file_path)
-        return jsonify({'success': True, 'result': result})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-@app.route('/api/scan-analysis')
-def api_scan_analysis():
-    """扫描分析目录 - 异步版本"""
-    try:
-        task_id = create_task('scan_analysis')
-        # 启动后台线程执行扫描
-        thread = threading.Thread(target=run_scan_analysis_task, args=(task_id,), daemon=True)
-        thread.start()
-        return jsonify({
-            'success': True,
-            'task_id': task_id,
-            'message': '扫描任务已启动'
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-@app.route('/api/scan-analysis/sync')
-def api_scan_analysis_sync():
-    """扫描分析目录 - 同步版本(保留兼容)"""
-    try:
-        analysis_data = manager.scan_analysis()
-        return jsonify({'success': True, 'analysis': analysis_data})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-@app.route('/api/import-analysis', methods=['POST'])
-def api_import_analysis():
-    """导入分析数据"""
-    try:
-        data = request.get_json()
-        folder_path = data.get('folder_path')
-        if not folder_path:
-            return jsonify({'success': False, 'message': '缺少文件夹路径'})
-        result = manager.import_analysis_folder(folder_path)
+        result = get_manager().import_processed_file(project_id, file_path)
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -401,8 +439,21 @@ def api_import_analysis():
 def api_get_metadata_config():
     """获取元数据配置"""
     try:
-        config = config_manager.get_all_configs()
+        config = get_config_manager().get_all_configs()
         return jsonify({'success': True, 'config': config})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/metadata/fields')
+def api_get_metadata_fields():
+    """获取指定表类型和数据集类型的元数据字段"""
+    field_table = request.args.get('table', 'raw')  # raw, result, file
+    data_type = request.args.get('data_type', None)  # 数据类型筛选
+    
+    try:
+        config = get_config_manager().get_configs_by_table(field_table, data_type)
+        return jsonify({'success': True, 'fields': config})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -412,7 +463,7 @@ def api_metadata_config():
     """添加元数据配置"""
     try:
         data = request.get_json()
-        config = config_manager.add_config(data)
+        config = get_config_manager().add_config(data)
         return jsonify({'success': True, 'config': config})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -423,7 +474,7 @@ def api_update_metadata_config():
     """更新元数据配置"""
     try:
         data = request.get_json()
-        success = config_manager.update_config(data)
+        success = get_config_manager().update_config(data)
         return jsonify({'success': success})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -437,7 +488,7 @@ def api_delete_metadata_config():
         config_id = data.get('id')
         if not config_id:
             return jsonify({'success': False, 'message': '缺少配置ID'})
-        success = config_manager.delete_config(config_id)
+        success = get_config_manager().delete_config(config_id)
         return jsonify({'success': success})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -451,7 +502,7 @@ def api_save_metadata_order():
         configs = data.get('configs', [])
         if not configs:
             return jsonify({'success': False, 'message': '缺少配置'})
-        success = config_manager.save_order(configs)
+        success = get_config_manager().save_order(configs)
         return jsonify({'success': success})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -500,13 +551,11 @@ def run_server(port=8000):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
     
     print(f"BioData Manager Flask 服务器运行在端口 {port}")
     print(f"数据目录: {DATA_DIR}")
     print(f"下载目录: {DOWNLOADS_DIR}")
     print(f"结果目录: {RESULTS_DIR}")
-    print(f"分析目录: {ANALYSIS_DIR}")
     
     app.run(host='0.0.0.0', port=port, debug=False)
 

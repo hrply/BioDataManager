@@ -36,11 +36,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pip.conf /etc/pip.conf
 COPY requirements.txt /app/requirements.txt
 
-# 复制应用代码
+# 复制应用代码和资源
 COPY app/ /app/
+COPY assets/ /assets/
 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# 创建bioraw目录结构（数据库设计规范要求）
+RUN mkdir -p /bioraw/data /bioraw/downloads /bioraw/results /bioraw/analysis
+
+# 复制本地字体文件到容器
+COPY assets/fonts/ /app/static/fonts/
+RUN mkdir -p /app/static/css/fonts && \
+    cp /app/static/fonts/bootstrap-icons.woff /app/static/css/fonts/ && \
+    cp /app/static/fonts/bootstrap-icons.woff2 /app/static/css/fonts/
 
 # 复制入口脚本并设置执行权限
 COPY app/docker-entrypoint.sh /docker-entrypoint.sh
