@@ -10,13 +10,14 @@ import json
 import os
 import re
 import shutil
+import random
+import string
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
 from database_mysql import DatabaseManager
 from metadata_config_manager_mysql import MetadataConfigManager
-from field_names import *
 
 
 class BioDataManager:
@@ -24,43 +25,44 @@ class BioDataManager:
     
     # 数据类型映射
     DATA_TYPE_MAPPING = {
-        'fastq': 'rnaseq',
-        'sam': 'rnaseq',
-        'bam': 'rnaseq',
-        'h5ad': 'singlecell',
-        'mtx': 'singlecell',
-        'raw': 'proteomics',
-        'mzml': 'proteomics',
-        'wiff': 'proteomics',
-        'fcs': 'mass_cytometry',
-        'csv': 'other',
-        'tsv': 'other',
-        'txt': 'other',
-        'h5': 'other',
+        'fastq': 'mRNAseq',
+        'sam': 'mRNAseq',
+        'bam': 'mRNAseq',
+        'fq': 'mRNAseq',
+        'h5ad': 'scRNAseq',
+        'mtx': 'scRNAseq',
+        'raw': '蛋白组',
+        'mzml': '蛋白组',
+        'wiff': '蛋白组',
+        'fcs': '免疫组学',
+        'csv': '其他',
+        'tsv': '其他',
+        'txt': '其他',
+        'h5': '其他',
     }
     
     # 文件类型映射
     FILE_TYPE_MAPPING = {
-        '.fastq': 'raw Sequencing Data',
-        '.sam': 'Alignment File',
-        '.bam': 'Alignment File',
-        '.fq': 'raw Sequencing Data',
-        '.h5ad': 'Single-cell Data',
-        '.mtx': 'Matrix File',
-        '.raw': 'Mass Spectrometry Data',
-        '.mzml': 'Mass Spectrometry Data',
-        '.wiff': 'Mass Spectrometry Data',
-        '.fcs': 'Flow Cytometry Data',
-        '.csv': 'Table/Report',
-        '.tsv': 'Table/Report',
-        '.txt': 'Text File',
-        '.h5': 'HDF5 Data',
-        '.pdf': 'Document',
-        '.png': 'Image',
-        '.jpg': 'Image',
-        '.jpeg': 'Image',
-        '.zip': 'Archive',
-        '.gz': 'Compressed Data',
+        '.fastq': 'FASTQ',
+        '.sam': 'SAM',
+        '.bam': 'BAM',
+        '.fq': 'FASTQ',
+        '.h5ad': 'H5AD',
+        '.mtx': 'MTX',
+        '.raw': 'RAW',
+        '.mzml': 'MZML',
+        '.wiff': 'WIFF',
+        '.fcs': 'FCS',
+        '.csv': 'CSV',
+        '.tsv': 'TSV',
+        '.txt': 'TXT',
+        '.h5': 'H5',
+        '.pdf': 'PDF',
+        '.png': 'PNG',
+        '.jpg': 'JPG',
+        '.jpeg': 'JPEG',
+        '.zip': 'ZIP',
+        '.gz': 'GZ',
     }
     
     # 数据库编号模式
@@ -74,189 +76,48 @@ class BioDataManager:
         (r'PXD\d+', 'ProteomeXchange', 'https://www.proteomecentral.com/protexchange/'),
     ]
     
-    # 物种名称映射
-    SPECIES_NAMES = {
-        'Homo sapiens': '人类',
-        'Mus musculus': '小鼠',
-        'Rattus norvegicus': '大鼠',
-        'Danio rerio': '斑马鱼',
-        'Drosophila melanogaster': '果蝇',
-        'Caenorhabditis elegans': '秀丽隐杆线虫',
-        'Arabidopsis thaliana': '拟南芥',
-        'Saccharomyces cerevisiae': '酿酒酵母',
-        'Escherichia coli': '大肠杆菌',
-        'Bacillus subtilis': '枯草芽孢杆菌',
-        'Sus scrofa': '猪',
-        'Gallus gallus': '鸡',
-        'Macaca mulatta': '恒河猴',
-    }
-    
     def __init__(self, db_manager: DatabaseManager, config_manager: MetadataConfigManager):
         self.db_manager = db_manager
         self.config_manager = config_manager
         
         # 路径配置（数据库设计规范要求）
-        self.data_dir = Path("/bioraw/data")
-        self.downloads_dir = Path("/bioraw/downloads")
-        self.results_dir = Path("/bioraw/results")
-        
-        # 基础数据目录
-        self.base_data_dir = Path("/ssd/bioraw/raw_data")
-        
-        # 初始化序列
-        self._init_sequences()
+        self.raw_data_dir = Path("/bioraw/rawdata")
+        self.results_dir = Path("/bio/results")
     
-    def _init_sequences(self):
-        """初始化ID序列"""
-        self.db_manager.execute("""
-            CREATE TABLE IF NOT EXISTS project_id_sequence (
-                id VARCHAR(50) PRIMARY KEY,
-                counter INT DEFAULT 0
-            )
-        """)
-        self.db_manager.execute("""
-            CREATE TABLE IF NOT EXISTS bioresult_id_sequence (
-                id VARCHAR(50) PRIMARY KEY,
-                counter INT DEFAULT 0
-            )
-        """)
+    def generate_project_id(self, project_type: str) -> str:
+        """生成项目编号（数据库设计规范：格式: {TYPE}_{8位UUID}）"""
+        chars = string.ascii_letters + string.digits
+        uuid_8 = ''.join(random.choice(chars) for _ in range(8))
+        return f"{project_type}_{uuid_8}"
     
-    def get_next_project_id(self) -> str:
-        """获取下一个项目ID"""
+    def get_abbr(self, field_id: str, full_name: str) -> str:
+        """获取缩写
+        
+        优先从缩写映射表获取，如果没有则取全称的前3个大写字母
+        如果全称少于3个字符，则用下划线填充到3位
+        """
+        if not full_name:
+            return 'UNK'
+        
         try:
-            result = self.db_manager.query_one("SELECT counter FROM project_id_sequence WHERE id = 'project'")
-            if result:
-                counter = result[0] + 1
-                self.db_manager.execute("UPDATE project_id_sequence SET counter = %s WHERE id = 'project'", (counter,))
-            else:
-                counter = 1
-                self.db_manager.execute("INSERT INTO project_id_sequence (id, counter) VALUES ('project', %s)", (counter,))
-            return f"PRJ-{str(counter).zfill(3)}"
+            # 尝试从缩写映射表获取
+            abbr = self.config_manager.get_abbr_mapping(field_id, full_name)
+            if abbr:
+                return abbr
         except Exception:
-            return f"PRJ-{datetime.now().strftime('%H%M')}"
+            # 如果表不存在或查询失败，使用默认逻辑
+            pass
+        
+        # 默认：取前3个大写字母，不足3位用下划线填充
+        abbr = ''.join(c for c in full_name.upper() if c.isalnum())[:3]
+        if len(abbr) < 3:
+            abbr = abbr.ljust(3, '_')
+        return abbr
     
-    def get_next_bioresult_id(self) -> str:
-        """获取下一个生物结果项目ID"""
-        try:
-            result = self.db_manager.query_one("SELECT counter FROM bioresult_id_sequence WHERE id = 'bioresult'")
-            if result:
-                counter = result[0] + 1
-                self.db_manager.execute("UPDATE bioresult_id_sequence SET counter = %s WHERE id = 'bioresult'", (counter,))
-            else:
-                counter = 1
-                self.db_manager.execute("INSERT INTO bioresult_id_sequence (id, counter) VALUES ('bioresult', %s)", (counter,))
-            return f"PRD-{str(counter).zfill(3)}"
-        except Exception:
-            return f"PRD-{datetime.now().strftime('%H%M')}"
-    
-    def create_project(self, data: Dict) -> Dict:
-        """创建新项目"""
-        project_id = self.get_next_project_id()
-        
-        # 构建项目路径
-        project_path = self.base_data_dir / f"{project_id}_{data.get('title', 'Untitled')}"
-        
-        # 处理多选字段
-        organism = data.get('organism', '')
-        if isinstance(organism, list):
-            organism = ', '.join(organism)
-        
-        data_types = data.get('data_type', '')
-        if isinstance(data_types, list):
-            data_types = ', '.join(data_types)
-        
-        tags = data.get('tags', [])
-        if isinstance(tags, list):
-            tags = json.dumps(tags, ensure_ascii=False)
-        
-        created_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # 构建SQL插入语句
-        columns = ['id', 'title', 'created_date', 'path']
-        values = [project_id, data.get('title', ''), created_date, str(project_path)]
-        
-        # 添加元数据字段
-        config = self.config_manager.get_all_configs()
-        for field in config:
-            field_name = field['field_name']
-            if field_name in data and field_name not in ['data_type', 'organism']:
-                if field['field_type'] in ['multi_select', 'select']:
-                    value = data[field_name]
-                    if isinstance(value, list):
-                        value = ', '.join(value)
-                else:
-                    value = data.get(field_name, '')
-                columns.append(field_name)
-                values.append(value)
-        
-        # 添加必需字段
-        columns.extend(['doi', 'db_id', 'data_type', 'organism', 'tags'])
-        values.extend([
-            data.get('doi', ''),
-            data.get('db_id', ''),
-            data_types,
-            organism,
-            tags
-        ])
-        
-        placeholders = ['%s'] * len(values)
-        
-        sql = f"INSERT INTO projects ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
-        self.db_manager.execute(sql, values)
-        
-        # 创建项目目录
-        project_path.mkdir(parents=True, exist_ok=True)
-        
-        # 生成README文档
-        self._generate_project_readme(project_id, data)
-        
-        # 获取完整项目信息
-        return self.get_project_by_id(project_id)
-    
-    def _generate_project_readme(self, project_id: str, data: Dict):
-        """生成项目README文档"""
-        project_path = self.base_data_dir / f"{project_id}_{data.get('title', 'Untitled')}"
-        readme_path = project_path / "README.md"
-        
-        # 获取项目信息用于README
-        project = self.get_project_by_id(project_id)
-        if not project:
-            return
-        
-        # 构建文件列表
-        file_list = ""
-        if project_path.exists():
-            for f in project_path.iterdir():
-                if f.is_file() and f.name != "README.md":
-                    size = self._format_size(f.stat().st_size)
-                    file_list += f"- `{f.name}` ({size})\n"
-        
-        readme_content = f"""# {project.get('title', 'Untitled')}
-
-**项目ID**: {project_id}
-**创建日期**: {project.get('created_date', '')}
-
-## 基本信息
-
-- **数据类型**: {project.get('data_type', 'N/A')}
-- **物种**: {project.get('organism', 'N/A')}
-- **DOI**: {project.get('doi', 'N/A')}
-- **数据库编号**: {project.get('db_id', 'N/A')}
-
-## 项目描述
-
-{project.get('description', '暂无描述')}
-
-## 文件列表
-
-{file_list if file_list else '暂无文件'}
-
----
-*此文档由 BioData Manager 自动生成*
-"""
-        
-        with open(readme_path, 'w', encoding='utf-8') as f:
-            f.write(readme_content)
+    def _get_file_type(self, filename: str) -> str:
+        """获取文件类型"""
+        ext = Path(filename).suffix.lower()
+        return self.FILE_TYPE_MAPPING.get(ext, Path(filename).suffix[1:] if Path(filename).suffix else 'unknown')
     
     def _format_size(self, size_bytes: int) -> str:
         """格式化文件大小"""
@@ -266,206 +127,528 @@ class BioDataManager:
             size_bytes /= 1024
         return f"{size_bytes:.1f} TB"
     
-    def get_all_projects(self) -> List[Dict]:
-        """获取所有项目"""
-        try:
-            config = self.config_manager.get_all_configs()
-            field_names = ['id', 'title', 'created_date'] + [c['field_name'] for c in config]
-            
-            projects = self.db_manager.query("""
-                SELECT * FROM projects ORDER BY created_date DESC
-            """)
-            
-            result = []
-            for row in projects:
-                project = dict(zip(field_names, row))
-                project['path'] = str(self.base_data_dir / f"{project['id']}_{project['title']}")
-                
-                # 兼容性字段名
-                project['raw_id'] = project['id']
-                
-                # 格式化显示
-                project['data_type_label'] = self.get_data_type_label(project.get('data_type', ''))
-                project['organism_label'] = self.get_organism_label(project.get('organism', ''))
-                
-                # 获取文件计数
-                project['file_count'] = self._get_file_count(project['id'])
-                
-                result.append(project)
-            
-            return result
-        except Exception as e:
-            print(f"获取项目列表失败: {e}")
-            return []
+    # ==================== 原始数据项目管理 ====================
     
-    def _get_file_count(self, project_id: str) -> int:
-        """获取项目文件数量"""
-        try:
-            result = self.db_manager.query_one(
-                "SELECT COUNT(*) FROM files WHERE project_id = %s",
-                (project_id,)
-            )
-            return result[0] if result else 0
-        except Exception:
-            return 0
+    def _build_raw_project_path(self, raw_type: str, species: str, tissue: str, raw_id: str) -> Path:
+        """构建原始数据项目路径（三级结构）
+        
+        路径格式: {raw_data_dir}/{数据类型}/{物种}/{样本来源}/{项目ID}/
+        如果样本来源为空，则: {raw_data_dir}/{数据类型}/{物种}/{项目ID}/
+        """
+        # 获取缩写
+        raw_type_abbr = self.get_abbr('raw_type', raw_type) if raw_type else 'UNK'
+        species_abbr = self.get_abbr('raw_species', species) if species else 'UNK'
+        tissue_abbr = self.get_abbr('raw_tissue', tissue) if tissue else ''
+        
+        # 构建路径
+        if tissue_abbr:
+            # 三级结构：{类型}/{物种}/{组织}/{项目ID}/
+            project_path = self.raw_data_dir / raw_type_abbr / species_abbr / tissue_abbr / raw_id
+        else:
+            # 二级结构：{类型}/{物种}/{项目ID}/
+            project_path = self.raw_data_dir / raw_type_abbr / species_abbr / raw_id
+        
+        project_path.mkdir(parents=True, exist_ok=True)
+        return project_path
     
-    def get_project_by_id(self, project_id: str) -> Optional[Dict]:
-        """根据ID获取项目"""
-        try:
-            config = self.config_manager.get_all_configs()
-            field_names = ['id', 'title', 'created_date'] + [c['field_name'] for c in config]
-            
-            row = self.db_manager.query_one(
-                f"SELECT {', '.join(field_names)} FROM projects WHERE id = %s",
-                (project_id,)
-            )
-            
-            if row:
-                project = dict(zip(field_names, row))
-                project['path'] = str(self.base_data_dir / f"{project['id']}_{project['title']}")
-                project['data_type_label'] = self.get_data_type_label(project.get('data_type', ''))
-                project['organism_label'] = self.get_organism_label(project.get('organism', ''))
-                
-                # 解析标签
-                try:
-                    project['tags'] = json.loads(project.get('tags', '[]'))
-                except (json.JSONDecodeError, TypeError):
-                    project['tags'] = []
-                
-                # 获取文件列表
-                project['files'] = self._get_project_files(project_id)
-                
-                return project
-            return None
-        except Exception as e:
-            print(f"获取项目失败: {e}")
-            return None
+    def create_raw_project(self, data: Dict) -> Dict:
+        """创建原始数据项目"""
+        raw_id = self.generate_project_id('RAW')
+        
+        # 获取字段值
+        raw_type = data.get('raw_type', '')
+        species = data.get('raw_species', '')
+        raw_tissue = data.get('raw_tissue', '')
+        
+        # 处理多选字段
+        if isinstance(raw_tissue, list):
+            raw_tissue = ','.join([t.strip() for t in raw_tissue if t.strip()])
+        
+        # 构建项目路径（三级结构）
+        project_path = self._build_raw_project_path(raw_type, species, raw_tissue, raw_id)
+        
+        # 构建SQL插入语句
+        self.db_manager.execute("""
+            INSERT INTO raw_project 
+            (raw_id, raw_title, raw_type, raw_species, raw_tissue, raw_DOI, raw_db_id, raw_db_link,
+             raw_author, raw_article, raw_description, raw_keywords)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            raw_id,
+            data.get('raw_title', ''),
+            raw_type,
+            species,
+            raw_tissue,
+            data.get('raw_DOI', ''),
+            data.get('raw_db_id', ''),
+            data.get('raw_db_link', ''),
+            data.get('raw_author', ''),
+            data.get('raw_article', ''),
+            data.get('raw_description', ''),
+            data.get('raw_keywords', '')
+        ))
+        
+        return self.get_raw_project_by_id(raw_id)
     
-    def _get_project_files(self, project_id: str) -> List[Dict]:
-        """获取项目文件列表"""
-        try:
-            files = self.db_manager.query(
-                "SELECT * FROM files WHERE project_id = %s ORDER BY file_name",
-                (project_id,)
-            )
-            return [dict(zip(['id', 'project_id', 'file_name', 'file_path', 'file_type', 'file_size', 'created_at'], f)) for f in files]
-        except Exception:
-            return []
+    def get_all_raw_projects(self) -> List[Dict]:
+        """获取所有原始数据项目"""
+        projects = self.db_manager.query("""
+            SELECT * FROM raw_project ORDER BY created_at DESC
+        """)
+        
+        result = []
+        for row in projects:
+            project = {
+                'id': row[0],
+                'raw_id': row[1],
+                'raw_title': row[2],
+                'raw_type': row[3],
+                'raw_species': row[4],
+                'raw_tissue': row[5],
+                'raw_DOI': row[6],
+                'raw_db_id': row[7],
+                'raw_db_link': row[8],
+                'raw_author': row[9],
+                'raw_article': row[10],
+                'raw_description': row[11],
+                'raw_keywords': row[12],
+                'raw_file_count': row[13],
+                'raw_total_size': row[14],
+                'created_at': row[15],
+                'updated_at': row[16]
+            }
+            result.append(project)
+        
+        return result
     
-    def update_project(self, data: Dict) -> bool:
-        """更新项目"""
-        project_id = data.get('id')
-        if not project_id:
+    def get_raw_project_by_id(self, raw_id: str) -> Optional[Dict]:
+        """根据ID获取原始数据项目"""
+        row = self.db_manager.query_one(
+            "SELECT * FROM raw_project WHERE raw_id = %s",
+            (raw_id,)
+        )
+        
+        if row:
+            return {
+                'id': row[0],
+                'raw_id': row[1],
+                'raw_title': row[2],
+                'raw_type': row[3],
+                'raw_species': row[4],
+                'raw_tissue': row[5],
+                'raw_DOI': row[6],
+                'raw_db_id': row[7],
+                'raw_db_link': row[8],
+                'raw_author': row[9],
+                'raw_article': row[10],
+                'raw_description': row[11],
+                'raw_keywords': row[12],
+                'raw_file_count': row[13],
+                'raw_total_size': row[14],
+                'created_at': row[15],
+                'updated_at': row[16]
+            }
+        return None
+    
+    def update_raw_project(self, data: Dict) -> bool:
+        """更新原始数据项目"""
+        raw_id = data.get('raw_id')
+        if not raw_id:
             return False
         
-        updates = []
-        values = []
+        # 处理多选字段
+        raw_tissue = data.get('raw_tissue', '')
+        if isinstance(raw_tissue, list):
+            raw_tissue = ','.join([t.strip() for t in raw_tissue if t.strip()])
         
-        # 动态构建更新语句
-        config = self.config_manager.get_all_configs()
-        allowed_fields = ['title', 'description'] + [c['field_name'] for c in config]
-        
-        for field in allowed_fields:
-            if field in data:
-                value = data[field]
-                if isinstance(value, list):
-                    value = ', '.join(value)
-                updates.append(f"{field} = %s")
-                values.append(value)
-        
-        if not updates:
-            return False
-        
-        values.append(project_id)
-        
-        sql = f"UPDATE projects SET {', '.join(updates)} WHERE id = %s"
-        self.db_manager.execute(sql, values)
-        
-        # 更新README
-        project = self.get_project_by_id(project_id)
-        if project:
-            self._generate_project_readme(project_id, project)
+        self.db_manager.execute("""
+            UPDATE raw_project 
+            SET raw_title = %s, raw_type = %s, raw_species = %s, raw_tissue = %s,
+                raw_DOI = %s, raw_db_id = %s, raw_db_link = %s, raw_author = %s,
+                raw_article = %s, raw_description = %s, raw_keywords = %s
+            WHERE raw_id = %s
+        """, (
+            data.get('raw_title', ''),
+            data.get('raw_type', ''),
+            data.get('raw_species', ''),
+            raw_tissue,
+            data.get('raw_DOI', ''),
+            data.get('raw_db_id', ''),
+            data.get('raw_db_link', ''),
+            data.get('raw_author', ''),
+            data.get('raw_article', ''),
+            data.get('raw_description', ''),
+            data.get('raw_keywords', ''),
+            raw_id
+        ))
         
         return True
     
-    def delete_bioresult_project(self, project_id: str) -> bool:
-        """删除结果项目"""
+    def delete_raw_project(self, raw_id: str) -> bool:
+        """删除原始数据项目"""
         try:
-            # 获取项目信息
-            project = self.get_bioresult_project_by_id(project_id)
+            project = self.get_raw_project_by_id(raw_id)
             if not project:
                 return False
             
-            # 删除数据库记录
-            self.db_manager.execute("DELETE FROM processed_files WHERE project_id = %s", (project_id,))
-            self.db_manager.execute("DELETE FROM bioresult_projects WHERE id = %s", (project_id,))
+            # 删除文件记录
+            self.db_manager.execute("DELETE FROM file_record WHERE file_project_id = %s", (raw_id,))
+            # 删除项目记录
+            self.db_manager.execute("DELETE FROM raw_project WHERE raw_id = %s", (raw_id,))
             
             # 删除项目目录
-            project_path = Path(self.results_dir) / f"{project_id}_{project.get('title', '')}"
+            project_path = self._build_raw_project_path(
+                project.get('raw_type', ''),
+                project.get('raw_species', ''),
+                project.get('raw_tissue', ''),
+                raw_id
+            )
             if project_path.exists():
                 shutil.rmtree(project_path)
             
             return True
         except Exception as e:
-            print(f"删除结果项目失败: {e}")
+            print(f"删除原始数据项目失败: {e}")
             return False
+    
+    # ==================== 结果数据项目管理 ====================
+    
+    def _build_result_project_path(self, results_type: str, raw_type: str, species: str, tissue: str, raw_project_id: str, results_id: str) -> Path:
+        """构建结果数据项目路径
+        
+        路径格式: {results_dir}/{结果类型}/{数据类型}-{物种}[-{组织}]/{原始项目ID}/{结果项目ID}/
+        """
+        results_type_abbr = self.get_abbr('results_type', results_type) if results_type else 'UNK'
+        raw_type_abbr = self.get_abbr('raw_type', raw_type) if raw_type else 'UNK'
+        species_abbr = self.get_abbr('raw_species', species) if species else 'UNK'
+        tissue_abbr = self.get_abbr('raw_tissue', tissue) if tissue else ''
+        
+        # 构建原始项目路径部分
+        if tissue_abbr:
+            raw_path = f"{raw_type_abbr}-{species_abbr}-{tissue_abbr}-{raw_project_id}"
+        else:
+            raw_path = f"{raw_type_abbr}-{species_abbr}-{raw_project_id}"
+        
+        # 构建完整路径
+        project_path = self.results_dir / results_type_abbr / raw_path / results_id
+        project_path.mkdir(parents=True, exist_ok=True)
+        return project_path
+    
+    def create_result_project(self, data: Dict) -> Dict:
+        """创建结果数据项目"""
+        results_id = self.generate_project_id('RES')
+        
+        results_type = data.get('results_type', '')
+        raw_project_id = data.get('results_raw', '')
+        
+        # 获取关联的原始项目信息
+        raw_type = ''
+        species = ''
+        tissue = ''
+        if raw_project_id:
+            raw = self.get_raw_project_by_id(raw_project_id)
+            if raw:
+                raw_type = raw.get('raw_type', '')
+                species = raw.get('raw_species', '')
+                tissue = raw.get('raw_tissue', '')
+        
+        # 构建项目路径
+        project_path = self._build_result_project_path(
+            results_type, raw_type, species, tissue, raw_project_id, results_id
+        )
+        
+        self.db_manager.execute("""
+            INSERT INTO result_project 
+            (results_id, results_title, results_type, results_raw, results_description, results_keywords)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            results_id,
+            data.get('results_title', ''),
+            results_type,
+            raw_project_id,
+            data.get('results_description', ''),
+            data.get('results_keywords', '')
+        ))
+        
+        return self.get_result_project_by_id(results_id)
+    
+    def get_all_result_projects(self) -> List[Dict]:
+        """获取所有结果数据项目"""
+        projects = self.db_manager.query("""
+            SELECT * FROM result_project ORDER BY created_at DESC
+        """)
+        
+        result = []
+        for row in projects:
+            project = {
+                'id': row[0],
+                'results_id': row[1],
+                'results_title': row[2],
+                'results_type': row[3],
+                'results_raw': row[4],
+                'results_description': row[5],
+                'results_keywords': row[6],
+                'results_file_count': row[7],
+                'results_total_size': row[8],
+                'created_at': row[9],
+                'updated_at': row[10]
+            }
+            result.append(project)
+        
+        return result
+    
+    def get_result_project_by_id(self, results_id: str) -> Optional[Dict]:
+        """根据ID获取结果数据项目"""
+        row = self.db_manager.query_one(
+            "SELECT * FROM result_project WHERE results_id = %s",
+            (results_id,)
+        )
+        
+        if row:
+            return {
+                'id': row[0],
+                'results_id': row[1],
+                'results_title': row[2],
+                'results_type': row[3],
+                'results_raw': row[4],
+                'results_description': row[5],
+                'results_keywords': row[6],
+                'results_file_count': row[7],
+                'results_total_size': row[8],
+                'created_at': row[9],
+                'updated_at': row[10]
+            }
+        return None
+    
+    def update_result_project(self, data: Dict) -> bool:
+        """更新结果数据项目"""
+        results_id = data.get('results_id')
+        if not results_id:
+            return False
+        
+        self.db_manager.execute("""
+            UPDATE result_project 
+            SET results_title = %s, results_type = %s, results_raw = %s,
+                results_description = %s, results_keywords = %s
+            WHERE results_id = %s
+        """, (
+            data.get('results_title', ''),
+            data.get('results_type', ''),
+            data.get('results_raw', ''),
+            data.get('results_description', ''),
+            data.get('results_keywords', ''),
+            results_id
+        ))
+        
+        return True
+    
+    def delete_result_project(self, results_id: str) -> bool:
+        """删除结果数据项目"""
+        try:
+            project = self.get_result_project_by_id(results_id)
+            if not project:
+                return False
+            
+            # 删除文件记录
+            self.db_manager.execute("DELETE FROM file_record WHERE file_project_id = %s", (results_id,))
+            # 删除项目记录
+            self.db_manager.execute("DELETE FROM result_project WHERE results_id = %s", (results_id,))
+            
+            # 获取关联的原始项目信息用于构建路径
+            raw_project_id = project.get('results_raw', '')
+            raw_type = ''
+            species = ''
+            tissue = ''
+            if raw_project_id:
+                raw = self.get_raw_project_by_id(raw_project_id)
+                if raw:
+                    raw_type = raw.get('raw_type', '')
+                    species = raw.get('raw_species', '')
+                    tissue = raw.get('raw_tissue', '')
+            
+            # 删除项目目录
+            project_path = self._build_result_project_path(
+                project.get('results_type', ''),
+                raw_type, species, tissue,
+                raw_project_id, results_id
+            )
+            if project_path.exists():
+                shutil.rmtree(project_path)
+            
+            return True
+        except Exception as e:
+            print(f"删除结果数据项目失败: {e}")
+            return False
+    
+    # ==================== 文件记录管理 ====================
+    
+    def get_files_by_project(self, project_type: str, project_id: str) -> List[Dict]:
+        """获取项目的文件列表"""
+        files = self.db_manager.query("""
+            SELECT * FROM file_record 
+            WHERE file_project_type = %s AND file_project_id = %s 
+            ORDER BY imported_at DESC
+        """, (project_type, project_id))
+        
+        result = []
+        for row in files:
+            result.append({
+                'id': row[0],
+                'file_name': row[1],
+                'file_path': row[2],
+                'file_size': row[3],
+                'file_type': row[4],
+                'file_project_type': row[5],
+                'file_project_id': row[6],
+                'imported_at': row[7]
+            })
+        return result
+    
+    def add_file_record(self, project_type: str, project_id: str, file_path: Path) -> bool:
+        """添加文件记录"""
+        try:
+            # 获取相对于 /bio 的路径
+            try:
+                relative_path = str(file_path.relative_to(Path('/bio')))
+            except ValueError:
+                relative_path = str(file_path)
+            
+            self.db_manager.execute("""
+                INSERT INTO file_record 
+                (file_name, file_path, file_size, file_type, file_project_type, file_project_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                file_path.name,
+                relative_path,
+                file_path.stat().st_size,
+                self._get_file_type(file_path.name),
+                project_type,
+                project_id
+            ))
+            
+            # 更新项目文件计数和总大小
+            if project_type == 'raw':
+                self._update_raw_file_count(project_id)
+            elif project_type == 'result':
+                self._update_result_file_count(project_id)
+            
+            return True
+        except Exception as e:
+            print(f"添加文件记录失败: {e}")
+            return False
+    
+    def delete_file_record(self, file_id: int) -> bool:
+        """删除文件记录"""
+        try:
+            file_record = self.db_manager.query_one(
+                "SELECT * FROM file_record WHERE id = %s",
+                (file_id,)
+            )
+            if not file_record:
+                return False
+            
+            project_type = file_record[5]
+            project_id = file_record[6]
+            
+            self.db_manager.execute("DELETE FROM file_record WHERE id = %s", (file_id,))
+            
+            # 更新项目文件计数和总大小
+            if project_type == 'raw':
+                self._update_raw_file_count(project_id)
+            elif project_type == 'result':
+                self._update_result_file_count(project_id)
+            
+            return True
+        except Exception as e:
+            print(f"删除文件记录失败: {e}")
+            return False
+    
+    def _update_raw_file_count(self, raw_id: str):
+        """更新原始项目的文件计数和总大小"""
+        result = self.db_manager.query_one("""
+            SELECT COUNT(*), COALESCE(SUM(file_size), 0) 
+            FROM file_record 
+            WHERE file_project_type = 'raw' AND file_project_id = %s
+        """, (raw_id,))
+        
+        if result:
+            file_count, total_size = result
+            self.db_manager.execute("""
+                UPDATE raw_project SET raw_file_count = %s, raw_total_size = %s WHERE raw_id = %s
+            """, (file_count, total_size, raw_id))
+    
+    def _update_result_file_count(self, results_id: str):
+        """更新结果项目的文件计数和总大小"""
+        result = self.db_manager.query_one("""
+            SELECT COUNT(*), COALESCE(SUM(file_size), 0) 
+            FROM file_record 
+            WHERE file_project_type = 'result' AND file_project_id = %s
+        """, (results_id,))
+        
+        if result:
+            file_count, total_size = result
+            self.db_manager.execute("""
+                UPDATE result_project SET results_file_count = %s, results_total_size = %s WHERE results_id = %s
+            """, (file_count, total_size, results_id))
+    
+    # ==================== 兼容性方法（供现有代码使用）====================
+    
+    def get_all_projects(self) -> List[Dict]:
+        """获取所有项目（兼容旧API）"""
+        return self.get_all_raw_projects()
+    
+    def get_project_by_id(self, project_id: str) -> Optional[Dict]:
+        """获取项目（兼容旧API）"""
+        return self.get_raw_project_by_id(project_id)
+    
+    def create_project(self, data: Dict) -> Dict:
+        """创建项目（兼容旧API）"""
+        return self.create_raw_project(data)
+    
+    def update_project(self, data: Dict) -> bool:
+        """更新项目（兼容旧API）"""
+        return self.update_raw_project(data)
     
     def delete_project(self, project_id: str) -> bool:
-        """删除项目"""
-        try:
-            # 获取项目信息
-            project = self.get_project_by_id(project_id)
-            if not project:
-                return False
-            
-            # 删除数据库记录
-            self.db_manager.execute("DELETE FROM files WHERE project_id = %s", (project_id,))
-            self.db_manager.execute("DELETE FROM projects WHERE id = %s", (project_id,))
-            
-            # 删除项目目录
-            project_path = self.base_data_dir / f"{project_id}_{project.get('title', '')}"
-            if project_path.exists():
-                shutil.rmtree(project_path)
-            
-            return True
-        except Exception as e:
-            print(f"删除项目失败: {e}")
-            return False
+        """删除项目（兼容旧API）"""
+        return self.delete_raw_project(project_id)
     
-    def get_data_type_label(self, data_type: str) -> str:
-        """获取数据类型标签"""
-        if not data_type:
-            return "未分类"
-        
-        # 处理逗号分隔的多值，直接返回原始值（避免导入不存在的常量）
-        types = [t.strip() for t in data_type.split(',')]
-        return ', '.join(types) if types else "未分类"
+    def get_all_bioresult_projects(self) -> List[Dict]:
+        """获取所有生物结果项目（兼容旧API）"""
+        return self.get_all_result_projects()
     
-    def get_organism_label(self, organism: str) -> str:
-        """获取物种显示标签"""
-        if not organism:
-            return "未指定"
-        
-        # 处理逗号分隔的多值
-        organisms = [o.strip() for o in organism.split(',')]
-        labels = []
-        
-        for o in organisms:
-            label = self.SPECIES_NAMES.get(o, o)
-            labels.append(label)
-        
-        return ', '.join(labels) if labels else "未指定"
+    def get_bioresult_project_by_id(self, project_id: str) -> Optional[Dict]:
+        """获取生物结果项目（兼容旧API）"""
+        return self.get_result_project_by_id(project_id)
+    
+    def create_bioresult_project(self, data: Dict) -> Dict:
+        """创建生物结果项目（兼容旧API）"""
+        return self.create_result_project(data)
+    
+    def update_bioresult_project(self, data: Dict) -> bool:
+        """更新生物结果项目（兼容旧API）"""
+        return self.update_result_project(data)
+    
+    def delete_bioresult_project(self, project_id: str) -> bool:
+        """删除生物结果项目（兼容旧API）"""
+        return self.delete_result_project(project_id)
+    
+    def get_all_processed_data(self) -> List[Dict]:
+        """获取所有处理数据"""
+        return self.get_files_by_project('result', '')
+    
+    # ==================== 目录扫描（保持原有功能）====================
     
     def scan_downloads(self) -> List[Dict]:
         """扫描下载目录"""
+        download_dir = Path("/bio/downloads")
         projects = []
         
-        if not self.downloads_dir.exists():
+        if not download_dir.exists():
             return projects
         
-        for item in self.downloads_dir.iterdir():
+        for item in download_dir.iterdir():
             if item.is_dir() and not item.name.startswith('.'):
-                # 尝试从目录名解析信息
                 project_info = self._parse_download_folder(item)
                 if project_info:
                     projects.append(project_info)
@@ -492,9 +675,9 @@ class BioDataManager:
         
         # 检测数据类型
         data_type = ""
-        for ext, dtype in self.FILE_TYPE_MAPPING.items():
+        for ext in self.FILE_TYPE_MAPPING.keys():
             if any(f.name.endswith(ext) for f in folder.iterdir() if f.is_file()):
-                data_type = self.DATA_TYPE_MAPPING.get(ext, 'other')
+                data_type = self.DATA_TYPE_MAPPING.get(ext, '其他')
                 break
         
         # 获取文件列表
@@ -520,27 +703,40 @@ class BioDataManager:
             'path': str(folder)
         }
     
-    def import_download_files(self, project_id: str, files: List[str]) -> Dict:
+    def import_download_files(self, project_id: str, files: List, folder_name: str = None) -> Dict:
         """导入下载文件到项目"""
-        project = self.get_project_by_id(project_id)
+        project = self.get_raw_project_by_id(project_id)
         if not project:
             return {'success': False, 'message': '项目不存在'}
         
-        project_path = self.base_data_dir / f"{project_id}_{project.get('title', '')}"
-        import_count = 0
+        # 使用三级路径结构
+        project_path = self._build_raw_project_path(
+            project.get('raw_type', ''),
+            project.get('raw_species', ''),
+            project.get('raw_tissue', ''),
+            project_id
+        )
         
+        # 获取源文件夹路径
+        source_folder = Path(folder_name) if folder_name else None
+        
+        import_count = 0
         for file_info in files:
-            file_path = Path(file_info.get('path', ''))
-            if file_path.exists():
+            # 支持文件名(字符串)或文件对象(带path)
+            if isinstance(file_info, str):
+                file_name = file_info
+                file_path = source_folder / file_name if source_folder else None
+            else:
+                file_name = file_info.get('name', '')
+                file_path = Path(file_info.get('path', '')) if file_info.get('path') else None
+                if not file_path and source_folder:
+                    file_path = source_folder / file_name
+            
+            if file_path and file_path.exists():
                 dest_path = project_path / file_path.name
                 shutil.copy2(file_path, dest_path)
+                self.add_file_record('raw', project_id, dest_path)
                 import_count += 1
-                
-                # 记录到数据库
-                self._add_file_record(project_id, dest_path)
-        
-        # 更新README
-        self._generate_project_readme(project_id, project)
         
         return {
             'success': True,
@@ -548,58 +744,30 @@ class BioDataManager:
             'project_id': project_id
         }
     
-    def _add_file_record(self, project_id: str, file_path: Path):
-        """添加文件记录到数据库"""
-        try:
-            file_ext = file_path.suffix.lower()
-            file_type = self.FILE_TYPE_MAPPING.get(file_ext, 'Other')
-            
-            self.db_manager.execute("""
-                INSERT INTO files (project_id, file_name, file_path, file_type, file_size)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (
-                project_id,
-                file_path.name,
-                str(file_path),
-                file_type,
-                file_path.stat().st_size
-            ))
-        except Exception as e:
-            print(f"添加文件记录失败: {e}")
-    
     def organize_project_files(self, project_id: str) -> Dict:
         """整理项目文件"""
-        project = self.get_project_by_id(project_id)
+        project = self.get_raw_project_by_id(project_id)
         if not project:
             return {'success': False, 'message': '项目不存在'}
         
-        project_path = self.base_data_dir / f"{project_id}_{project.get('title', '')}"
+        project_path = self._build_raw_project_path(
+            project.get('raw_type', ''),
+            project.get('raw_species', ''),
+            project.get('raw_tissue', ''),
+            project_id
+        )
+        
         if not project_path.exists():
             return {'success': False, 'message': '项目目录不存在'}
         
         organized = {'files': [], 'folders': []}
         
-        # 按类型创建子目录并移动文件
-        type_folders = {
-            'raw Sequencing Data': 'raw_data',
-            'Alignment File': 'alignment',
-            'Single-cell Data': 'singlecell',
-            'Mass Spectrometry Data': 'mass_spec',
-            'Flow Cytometry Data': 'flow_cytometry',
-            'Table/Report': 'tables',
-            'Image': 'images',
-            'Document': 'documents',
-            'Compressed Data': 'compressed',
-            'Other': 'other'
-        }
-        
         for file_path in project_path.iterdir():
-            if file_path.is_file() and file_path.name != "README.md":
+            if file_path.is_file():
                 file_ext = file_path.suffix.lower()
-                file_type = self.FILE_TYPE_MAPPING.get(file_ext, 'Other')
+                file_type = self._get_file_type(file_path.name)
                 
-                target_folder_name = type_folders.get(file_type, 'other')
-                target_folder = project_path / target_folder_name
+                target_folder = project_path / file_type
                 target_folder.mkdir(exist_ok=True)
                 
                 new_path = target_folder / file_path.name
@@ -608,11 +776,8 @@ class BioDataManager:
                 organized['files'].append({
                     'name': file_path.name,
                     'type': file_type,
-                    'folder': target_folder_name
+                    'folder': file_type
                 })
-        
-        # 更新README
-        self._generate_project_readme(project_id, project)
         
         return {'success': True, 'organized': organized}
     
@@ -645,161 +810,11 @@ class BioDataManager:
         
         return build_tree(root)
     
-    # ==================== 生物结果项目管理 ====================
-    
-    def create_bioresult_project(self, data: Dict) -> Dict:
-        """创建生物结果项目"""
-        project_id = self.get_next_bioresult_id()
-        
-        project_path = self.results_dir / f"{project_id}_{data.get('title', 'Untitled')}"
-        project_path.mkdir(parents=True, exist_ok=True)
-        
-        created_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        self.db_manager.execute("""
-            INSERT INTO bioresult_projects 
-            (id, title, description, data_type, analysis_type, software, parameters, authors, created_date, path)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            project_id,
-            data.get('title', ''),
-            data.get('description', ''),
-            data.get('data_type', ''),
-            data.get('analysis_type', ''),
-            data.get('software', ''),
-            data.get('parameters', ''),
-            data.get('authors', ''),
-            created_date,
-            str(project_path)
-        ))
-        
-        return self.get_bioresult_project_by_id(project_id)
-    
-    def get_all_bioresult_projects(self) -> List[Dict]:
-        """获取所有生物结果项目"""
-        projects = self.db_manager.query("""
-            SELECT * FROM bioresult_projects ORDER BY created_date DESC
-        """)
-        
-        result = []
-        for row in projects:
-            project = {
-                'id': row[0],
-                'title': row[1],
-                'description': row[2],
-                'data_type': row[3],
-                'analysis_type': row[4],
-                'software': row[5],
-                'parameters': row[6],
-                'authors': row[7],
-                'created_date': row[8],
-                'path': row[9]
-            }
-            # 兼容性字段名
-            project['results_id'] = project['id']
-            project['analysis_type_label'] = project.get('analysis_type', '')
-            result.append(project)
-        
-        return result
-    
-    def get_bioresult_project_by_id(self, project_id: str) -> Optional[Dict]:
-        """根据ID获取生物结果项目"""
-        row = self.db_manager.query_one(
-            "SELECT * FROM bioresult_projects WHERE id = %s",
-            (project_id,)
-        )
-        
-        if row:
-            return {
-                'id': row[0],
-                'title': row[1],
-                'description': row[2],
-                'data_type': row[3],
-                'analysis_type': row[4],
-                'software': row[5],
-                'parameters': row[6],
-                'authors': row[7],
-                'created_date': row[8],
-                'path': row[9]
-            }
-        return None
-    
-    def update_bioresult_project(self, data: Dict) -> bool:
-        """更新生物结果项目"""
-        project_id = data.get('id')
-        if not project_id:
-            return False
-        
-        self.db_manager.execute("""
-            UPDATE bioresult_projects 
-            SET title = %s, description = %s, data_type = %s, 
-                analysis_type = %s, software = %s, parameters = %s, authors = %s
-            WHERE id = %s
-        """, (
-            data.get('title', ''),
-            data.get('description', ''),
-            data.get('data_type', ''),
-            data.get('analysis_type', ''),
-            data.get('software', ''),
-            data.get('parameters', ''),
-            data.get('authors', ''),
-            project_id
-        ))
-        
-        return True
-    
-    def delete_bioresult_project(self, project_id: str) -> bool:
-        """删除生物结果项目"""
-        try:
-            project = self.get_bioresult_project_by_id(project_id)
-            if not project:
-                return False
-            
-            self.db_manager.execute("DELETE FROM bioresult_projects WHERE id = %s", (project_id,))
-            
-            # 删除项目目录
-            project_path = Path(project['path'])
-            if project_path.exists():
-                shutil.rmtree(project_path)
-            
-            return True
-        except Exception as e:
-            print(f"删除生物结果项目失败: {e}")
-            return False
-    
-    # ==================== 处理数据管理 ====================
-    
-    def get_all_processed_data(self) -> List[Dict]:
-        """获取所有处理数据"""
-        data = self.db_manager.query("""
-            SELECT * FROM processed_files ORDER BY indexed_at DESC
-        """)
-        
-        return [dict(zip(
-            ['id', 'project_id', 'file_name', 'file_path', 'file_type', 'file_size', 'indexed_at'],
-            row
-        )) for row in data]
-    
-    def _get_file_type(self, filename: str) -> str:
-        """获取文件类型"""
-        ext = Path(filename).suffix.lower()
-        return self.FILE_TYPE_MAPPING.get(ext, 'Other')
-    
     def import_processed_file(self, project_id: str, file_path: str) -> Dict:
         """导入处理文件"""
         path = Path(file_path)
         if not path.exists():
             return {'success': False, 'message': '文件不存在'}
         
-        self.db_manager.execute("""
-            INSERT INTO processed_files (project_id, file_name, file_path, file_type, file_size)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            project_id,
-            path.name,
-            str(path),
-            self._get_file_type(path.name),
-            path.stat().st_size
-        ))
-        
+        self.add_file_record('result', project_id, path)
         return {'success': True, 'file': path.name}

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   biodata-manager:
     build:
@@ -18,11 +16,11 @@ services:
       - MYSQL_USER=${MYSQL_USER:-biodata}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-biodata123}
       - MYSQL_DATABASE=${MYSQL_DATABASE:-biodata}
+      - INIT_DATABASE=${INIT_DATABASE:-false} # set to 'true' for first time setup， then set to 'false' afterwards
     volumes:
-      - /ssd/bioraw/raw_data:/bioraw/data:rw
-      - /ssd/bioraw/downloads:/bioraw/downloads:rw
-      - /ssd/bioraw/results:/bioraw/results:rw
-      - /ssd/bioraw/analysis:/bioraw/analysis:rw
+      - /ssd/bioraw/raw_data:/bioraw/rawdata:rw
+      - /ssd/bioraw/downloads:/bio/downloads:rw
+      - /ssd/bioraw/results:/bio/results:rw
       - ./app:/app:rw
     restart: unless-stopped
     depends_on:

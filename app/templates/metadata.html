@@ -9,7 +9,7 @@
         <h1>
             <i class="bi bi-gear me-3"></i>元数据管理
         </h1>
-        <p class="lead">配置字段属性、管理选项列表、定义缩写映射</p>
+        <p class="lead">配置字段属性、管理选项列表</p>
     </div>
 </div>
 
@@ -31,257 +31,96 @@
                 <i class="bi bi-folder2-open me-2"></i>文件管理字段
             </button>
         </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link" id="abbr-tab" data-bs-toggle="tab" data-bs-target="#abbr-mapping" type="button" role="tab">
-                <i class="bi bi-front me-2"></i>缩写映射
-            </button>
-        </li>
     </ul>
 
     <!-- 标签页内容 -->
     <div class="tab-content" id="metadata-tab-content">
-        <!-- 原始数据字段 -->
-        <div class="tab-pane fade show active" id="raw-fields" role="tabpanel">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-list me-2"></i>字段列表</span>
-                    <div>
-                        <button class="btn btn-outline-secondary btn-sm me-2" onclick="toggleSortMode('raw')">
-                            <i class="bi bi-arrow-up-down me-1"></i>排序模式
-                        </button>
-                        <button class="btn btn-primary btn-sm" onclick="showAddFieldModal('raw')">
-                            <i class="bi bi-plus-circle me-1"></i>添加字段
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th class="sort-handle" style="width: 50px;"><i class="bi bi-grip-vertical"></i></th>
-                                    <th>字段标识符</th>
-                                    <th>字段名称</th>
-                                    <th>类型</th>
-                                    <th>必填</th>
-                                    <th>选项数</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                    </table>
-                    <!-- 表格BODY单独渲染以支持排序 -->
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <tbody id="raw-field-list">
-                                {% if raw_configs %}
-                                {% for field in raw_configs %}
-                                <tr>
-                                    <td class="sort-handle" style="width: 50px;"><i class="bi bi-grip-vertical"></i></td>
-                                    <td><code>{{ field.field_id }}</code></td>
-                                    <td>{{ field.field_name }}</td>
-                                    <td>{{ field.field_type }}</td>
-                                    <td>{{ '是' if field.required else '否' }}</td>
-                                    <td>{{ field.options_count or 0 }}</td>
-                                    <td>
-                                        <button class="btn btn-outline-primary btn-sm" onclick="editField('raw', '{{ field.id }}')">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteField('{{ field.id }}')">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                                {% else %}
-                                <tr>
-                                    <td colspan="7" class="text-center py-4 text-muted">
-                                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
-                                        暂无字段配置
-                                    </td>
-                                </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 结果数据字段 -->
-        <div class="tab-pane fade" id="result-fields" role="tabpanel">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-list me-2"></i>字段列表</span>
-                    <div>
-                        <button class="btn btn-outline-secondary btn-sm me-2" onclick="toggleSortMode('result')">
-                            <i class="bi bi-arrow-up-down me-1"></i>排序模式
-                        </button>
-                        <button class="btn btn-success btn-sm" onclick="showAddFieldModal('result')">
-                            <i class="bi bi-plus-circle me-1"></i>添加字段
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <tbody id="result-field-list">
-                                {% if result_configs %}
-                                {% for field in result_configs %}
-                                <tr>
-                                    <td class="sort-handle" style="width: 50px;"><i class="bi bi-grip-vertical"></i></td>
-                                    <td><code>{{ field.field_id }}</code></td>
-                                    <td>{{ field.field_name }}</td>
-                                    <td>{{ field.field_type }}</td>
-                                    <td>{{ '是' if field.required else '否' }}</td>
-                                    <td>{{ field.options_count or 0 }}</td>
-                                    <td>
-                                        <button class="btn btn-outline-success btn-sm" onclick="editField('result', '{{ field.id }}')">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteField('{{ field.id }}')">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                                {% else %}
-                                <tr>
-                                    <td colspan="7" class="text-center py-4 text-muted">
-                                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
-                                        暂无字段配置
-                                    </td>
-                                </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 文件管理字段 -->
-        <div class="tab-pane fade" id="file-fields" role="tabpanel">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-list me-2"></i>字段列表</span>
-                    <div>
-                        <button class="btn btn-outline-secondary btn-sm me-2" onclick="toggleSortMode('file')">
-                            <i class="bi bi-arrow-up-down me-1"></i>排序模式
-                        </button>
-                        <button class="btn btn-warning btn-sm" onclick="showAddFieldModal('file')">
-                            <i class="bi bi-plus-circle me-1"></i>添加字段
-                        </button>
-                    </div>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <tbody id="file-field-list">
-                                {% if file_configs %}
-                                {% for field in file_configs %}
-                                <tr>
-                                    <td class="sort-handle" style="width: 50px;"><i class="bi bi-grip-vertical"></i></td>
-                                    <td><code>{{ field.field_id }}</code></td>
-                                    <td>{{ field.field_name }}</td>
-                                    <td>{{ field.field_type }}</td>
-                                    <td>{{ '是' if field.required else '否' }}</td>
-                                    <td>{{ field.options_count or 0 }}</td>
-                                    <td>
-                                        <button class="btn btn-outline-warning btn-sm" onclick="editField('file', '{{ field.id }}')">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteField('{{ field.id }}')">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                                {% else %}
-                                <tr>
-                                    <td colspan="7" class="text-center py-4 text-muted">
-                                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
-                                        暂无字段配置
-                                    </td>
-                                </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 缩写映射 -->
-        <div class="tab-pane fade" id="abbr-mapping" role="tabpanel">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-front me-2"></i>缩写映射管理</span>
-                    <button class="btn btn-info btn-sm" onclick="showAddAbbrModal()">
-                        <i class="bi bi-plus-circle me-1"></i>添加映射
-                    </button>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted mb-3">管理字段值的全称与缩写对应关系，用于文件导入时生成目录结构。</p>
-                    
-                    <div class="row g-3 mb-4">
-                        <div class="col-md-4">
-                            <select class="form-select" id="abbr-field-filter">
-                                <option value="">所有字段</option>
-                            </select>
+                <!-- 原始数据字段 -->
+                <div class="tab-pane fade show active" id="raw-fields" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-list me-2"></i>字段列表</span>
+                            <div>
+                                <button class="btn btn-outline-secondary btn-sm me-2" id="raw-edit-btn" onclick="toggleEditMode('raw')">
+                                    <i class="bi bi-pencil-square me-1"></i><span id="raw-edit-text">编辑模式</span>
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="showAddFieldModal('raw')">
+                                    <i class="bi bi-plus-circle me-1"></i>添加字段
+                                </button>
+                            </div>
                         </div>
-                        <div class="col-md-4">
-                            <input type="text" class="form-control" id="abbr-search" placeholder="搜索全称或缩写...">
-                        </div>
-                        <div class="col-md-4">
-                            <button class="btn btn-outline-primary w-100" onclick="filterAbbr()">
-                                <i class="bi bi-search me-1"></i>搜索
-                            </button>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0" id="raw-field-table">
+                                    <thead class="table-light" id="raw-field-thead">
+                                        <tr>
+                                            <th>加载中...</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="raw-field-list"></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
-                    
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>字段</th>
-                                    <th>全称</th>
-                                    <th>缩写</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="abbr-list">
-                                {% if abbr_mappings %}
-                                {% for abbr in abbr_mappings %}
-                                <tr>
-                                    <td>{{ abbr.field_name or abbr.field_id }}</td>
-                                    <td>{{ abbr.full_name }}</td>
-                                    <td><code>{{ abbr.abbr }}</code></td>
-                                    <td>
-                                        <button class="btn btn-outline-info btn-sm" onclick="editAbbr('{{ abbr.id }}')">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                        <button class="btn btn-outline-danger btn-sm" onclick="deleteAbbr('{{ abbr.id }}')">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                                {% else %}
-                                <tr>
-                                    <td colspan="4" class="text-center py-4 text-muted">
-                                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
-                                        暂无缩写映射
-                                    </td>
-                                </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
+                </div>
+        
+                <!-- 结果数据字段 -->
+                <div class="tab-pane fade" id="result-fields" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-list me-2"></i>字段列表</span>
+                            <div>
+                                <button class="btn btn-outline-secondary btn-sm me-2" id="result-edit-btn" onclick="toggleEditMode('result')">
+                                    <i class="bi bi-pencil-square me-1"></i><span id="result-edit-text">编辑模式</span>
+                                </button>
+                                <button class="btn btn-success btn-sm" onclick="showAddFieldModal('result')">
+                                    <i class="bi bi-plus-circle me-1"></i>添加字段
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light" id="result-field-thead">
+                                        <tr>
+                                            <th>加载中...</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="result-field-list"></tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
+        
+                <!-- 文件管理字段 -->
+                <div class="tab-pane fade" id="file-fields" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-list me-2"></i>字段列表</span>
+                            <div>
+                                <button class="btn btn-outline-secondary btn-sm me-2" id="file-edit-btn" onclick="toggleEditMode('file')">
+                                    <i class="bi bi-pencil-square me-1"></i><span id="file-edit-text">编辑模式</span>
+                                </button>
+                                <button class="btn btn-warning btn-sm" onclick="showAddFieldModal('file')">
+                                    <i class="bi bi-plus-circle me-1"></i>添加字段
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light" id="file-field-thead">
+                                        <tr>
+                                            <th>加载中...</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="file-field-list"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
 <!-- 添加/编辑字段模态框 -->
 <div class="modal fade" id="field-modal" tabindex="-1">
@@ -329,6 +168,24 @@
                         </div>
                     </div>
                     
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">排列方式</label>
+                            <select class="form-select" id="field-field_placeholder">
+                                <option value="2">两列显示（默认）</option>
+                                <option value="1">单列显示（占满整行）</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">是否只读</label>
+                            <select class="form-select" id="field-field_readonly">
+                                <option value="0">否</option>
+                                <option value="1">是（系统自动管理）</option>
+                            </select>
+                            <div class="form-text">设置为"是"后，文件导入时自动更新此字段</div>
+                        </div>
+                    </div>
+                    
                     <div class="mb-3" id="options-field" style="display: none;">
                         <label class="form-label">选项列表</label>
                         <div class="card bg-light">
@@ -355,7 +212,7 @@
                         </div>
                     </div>
                     
-                    <div class="mb-0">
+                    <div class="mb-3">
                         <label class="form-label">排序序号</label>
                         <input type="number" class="form-control" id="field-field_seq" value="0">
                     </div>
@@ -368,61 +225,22 @@
         </div>
     </div>
 </div>
-
-<!-- 添加缩写映射模态框 -->
-<div class="modal fade" id="abbr-modal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">添加缩写映射</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="abbr-form">
-                    <div class="mb-3">
-                        <label class="form-label">字段 <span class="text-danger">*</span></label>
-                        <select class="form-select" id="abbr-field_id" required>
-                            <option value="">请选择字段...</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">全称 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="abbr-full_name" required
-                               placeholder="如: mRNAseq, Homo sapiens">
-                    </div>
-                    <div class="mb-0">
-                        <label class="form-label">缩写 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="abbr-abbr_name" required
-                               placeholder="如: mRseq, Hs">
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-primary" onclick="saveAbbr()">保存</button>
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block extra_css %}
 <style>
-    .sort-handle {
-        cursor: move;
-        color: #adb5bd;
+    .edit-mode input, .edit-mode select {
+        border-color: #0d6efd;
+        background-color: #f8f9fa;
     }
-    .sort-handle:hover {
-        color: #495057;
-    }
-    .sort-mode .sort-handle {
-        color: #0d6efd;
-    }
-    .sort-mode tr {
+    .edit-mode tr {
         transition: all 0.2s;
     }
-    .sort-mode tr:hover {
+    .edit-mode tr:hover {
         background-color: #e9ecef;
+    }
+    .edit-mode .form-control:focus, .edit-mode .form-select:focus {
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
     }
 </style>
 {% endblock %}
@@ -430,14 +248,69 @@
 {% block extra_js %}
 <script>
     let config = [];
-    let sortMode = {raw: false, result: false, file: false};
-    let abbrList = [];
+    let columnHeaders = [];
+    let editMode = {raw: false, result: false, file: false};
 
     // 初始化
     $(document).ready(function() {
-        loadConfig();
-        loadAbbr();
+        loadColumnHeaders().then(function() {
+            loadConfig();
+        });
     });
+
+    // 加载列标题
+    function loadColumnHeaders() {
+        return apiGet('/api/metadata/config/columns').then(function(res) {
+            if (res.success) {
+                columnHeaders = res.columns || [];
+                renderTableHeaders();
+            }
+        });
+    }
+
+    // 渲染表头
+    function renderTableHeaders() {
+        // 生成表头 HTML
+        let headerHtml = ``;
+        
+        // 动态生成列标题 (第 1-7 列)
+        columnHeaders.forEach(function(col) {
+            headerHtml += `<th>${col.comment}</th>`;
+        });
+        
+        headerHtml += `<th>操作</th>`;
+        
+        // 更新所有表格的表头
+        ['raw', 'result', 'file'].forEach(function(table) {
+            const thead = $(`#${table}-field-thead`);
+            thead.html(`<tr>${headerHtml}</tr>`);
+        });
+    }
+
+    // 获取列标题
+    function getColumnHeader(colName) {
+        const col = columnHeaders.find(c => c.name === colName);
+        return col ? col.comment : colName;
+    }
+
+    // 渲染字段列表表头
+    function renderFieldTableHeader() {
+        let headerHtml = ``;
+        
+        // 动态生成列标题 (第 1-7 列)
+        const displayColumns = ['field_seq', 'field_id', 'field_name', 'field_type', 'field_necessary', 'field_placeholder', 'field_readonly'];
+        displayColumns.forEach(function(colName) {
+            const header = getColumnHeader(colName);
+            headerHtml += `<th>${header}</th>`;
+        });
+        
+        headerHtml += `
+                    <th>操作</th>
+                </tr>
+            </thead>
+        `;
+        return headerHtml;
+    }
 
     // 加载配置
     function loadConfig() {
@@ -451,14 +324,17 @@
 
     // 渲染字段列表
     function renderFieldLists() {
+        const isEditMode = editMode.raw || editMode.result || editMode.file;
+        
         ['raw', 'result', 'file'].forEach(function(table) {
             const fields = config.filter(f => f.field_table === table);
             const tbody = $(`#${table}-field-list`);
+            const tableEditMode = editMode[table];
             
             if (fields.length === 0) {
                 tbody.html(`
                     <tr>
-                        <td colspan="7" class="text-center py-4 text-muted">
+                        <td colspan="8" class="text-center py-4 text-muted">
                             <i class="bi bi-inbox fs-4 d-block mb-2"></i>
                             暂无字段
                         </td>
@@ -467,26 +343,76 @@
             } else {
                 let html = '';
                 fields.sort((a, b) => (a.field_seq || 0) - (b.field_seq || 0)).forEach(function(f, index) {
-                    const options = f.field_options ? JSON.parse(f.field_options) : [];
+                    const placeholderText = f.field_placeholder === '1' ? '单列' : '两列';
+                    const placeholderClass = f.field_placeholder === '1' ? 'text-primary' : 'text-muted';
+                    const readonlyText = f.field_readonly == 1 ? '是' : '否';
+                    const readonlyClass = f.field_readonly == 1 ? 'text-warning' : 'text-muted';
+                    
+                    const fieldTypeText = f.field_type === 'text' ? '文本' : f.field_type === 'textarea' ? '多行文本' : f.field_type === 'select' ? '单选' : '多选';
+                    const fieldTypeClass = f.field_type === 'select' || f.field_type === 'multi_select' ? 'bg-info' : 'bg-secondary';
+                    const necessaryText = f.field_necessary == 1 ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-dash-circle text-muted"></i>';
+                    
+                    // 编辑模式下生成可编辑的输入框
+                    const fieldSeqHtml = tableEditMode 
+                        ? `<input type="number" class="form-control form-control-sm" value="${f.field_seq || 0}" data-field="field_seq" data-id="${f.id}" style="width: 60px;">`
+                        : `<small class="text-muted">${f.field_seq || 0}</small>`;
+                    
+                    const fieldNameValue = f.field_name || f.field_id || '';
+                    const fieldNameHtml = tableEditMode
+                        ? `<input type="text" class="form-control form-control-sm" value="${fieldNameValue}" data-field="field_name" data-id="${f.id}">`
+                        : (f.field_name || f.field_id || '');
+                    
+                    const fieldTypeHtml = tableEditMode
+                        ? `<select class="form-select form-select-sm" data-field="field_type" data-id="${f.id}">
+                            <option value="text" ${f.field_type === 'text' ? 'selected' : ''}>文本</option>
+                            <option value="textarea" ${f.field_type === 'textarea' ? 'selected' : ''}>多行文本</option>
+                            <option value="select" ${f.field_type === 'select' ? 'selected' : ''}>单选</option>
+                            <option value="multi_select" ${f.field_type === 'multi_select' ? 'selected' : ''}>多选</option>
+                           </select>`
+                        : `<span class="badge ${fieldTypeClass}">${fieldTypeText}</span>`;
+                    
+                    const necessaryHtml = tableEditMode
+                        ? `<select class="form-select form-select-sm" data-field="field_necessary" data-id="${f.id}">
+                            <option value="0" ${f.field_necessary == 0 ? 'selected' : ''}>否</option>
+                            <option value="1" ${f.field_necessary == 1 ? 'selected' : ''}>是</option>
+                           </select>`
+                        : necessaryText;
+                    
+                    const placeholderHtml = tableEditMode
+                        ? `<select class="form-select form-select-sm" data-field="field_placeholder" data-id="${f.id}">
+                            <option value="1" ${f.field_placeholder === '1' ? 'selected' : ''}>单列</option>
+                            <option value="2" ${f.field_placeholder === '2' || !f.field_placeholder ? 'selected' : ''}>两列</option>
+                           </select>`
+                        : `<span class="${placeholderClass}">${placeholderText}</span>`;
+                    
+                    const readonlyHtml = tableEditMode
+                        ? `<select class="form-select form-select-sm" data-field="field_readonly" data-id="${f.id}">
+                            <option value="0" ${f.field_readonly == 0 ? 'selected' : ''}>否</option>
+                            <option value="1" ${f.field_readonly == 1 ? 'selected' : ''}>是</option>
+                           </select>`
+                        : `<span class="${readonlyClass}">${readonlyText}</span>`;
+                    
                     html += `
                         <tr data-id="${f.id}">
-                            <td class="sort-handle"><i class="bi bi-grip-vertical"></i></td>
+                            <td>${fieldSeqHtml}</td>
                             <td><code>${f.field_id}</code></td>
-                            <td>${f.field_name}</td>
+                            <td>${fieldNameHtml}</td>
+                            <td>${fieldTypeHtml}</td>
+                            <td>${necessaryHtml}</td>
+                            <td>${placeholderHtml}</td>
+                            <td>${readonlyHtml}</td>
                             <td>
-                                <span class="badge ${f.field_type === 'select' || f.field_type === 'multi_select' ? 'bg-info' : 'bg-secondary'}">
-                                    ${f.field_type === 'text' ? '文本' : f.field_type === 'textarea' ? '多行文本' : f.field_type === 'select' ? '单选' : '多选'}
-                                </span>
-                            </td>
-                            <td>${f.field_necessary == 1 ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-dash-circle text-muted"></i>'}</td>
-                            <td>${options.length}</td>
-                            <td>
-                                <button class="btn btn-outline-primary btn-sm me-1" onclick="editField(${f.id})" title="编辑">
-                                    <i class="bi bi-pencil"></i>
-                                </button>
-                                <button class="btn btn-outline-danger btn-sm" onclick="deleteField(${f.id})" title="删除">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                ${tableEditMode 
+                                    ? `<button class="btn btn-outline-secondary btn-sm" onclick="cancelEdit('${table}')" title="取消">
+                                        <i class="bi bi-x-circle"></i>
+                                       </button>`
+                                    : `<button class="btn btn-outline-primary btn-sm me-1" onclick="editField(${f.id})" title="编辑">
+                                        <i class="bi bi-pencil"></i>
+                                       </button>
+                                       <button class="btn btn-outline-danger btn-sm" onclick="deleteField(${f.id})" title="删除">
+                                        <i class="bi bi-trash"></i>
+                                       </button>`
+                                }
                             </td>
                         </tr>
                     `;
@@ -496,29 +422,23 @@
         });
     }
 
-    // 加载缩写列表
-    function loadAbbr() {
-        // TODO: 实现获取缩写API
-        // 暂时从config中提取可用的field_id
-        const fieldIds = [...new Set(config.map(f => f.field_id))];
-        $('#abbr-field-filter, #abbr-field_id').append(
-            fieldIds.map(id => `<option value="${id}">${id}</option>`).join('')
-        );
-    }
-
     // 显示添加字段模态框
     function showAddFieldModal(table) {
         $('#field-modal-title').text('添加字段');
-        $('#field-form')[0].reset();
-        $('#field-id').val('');
+        // 先设置 field-table，再重置表单，确保值不会被 reset() 影响
         $('#field-table').val(table);
-        $('#options-container').html(`
-            <div class="row g-2 mb-2 option-row">
-                <div class="col-5"><input type="text" class="form-control" placeholder="值 (value)" name="opt-value"></div>
-                <div class="col-5"><input type="text" class="form-control" placeholder="标签 (label)" name="opt-label"></div>
-                <div class="col-2"><button type="button" class="btn btn-outline-danger w-100" onclick="removeOptionRow(this)"><i class="bi bi-x"></i></button></div>
-            </div>
-        `);
+        $('#field-form')[0].reset();
+        $('#field-table').val(table); // reset 后再次确认设置
+        $('#options-container').html(
+            '<div class="row g-2 mb-2">' +
+            '<div class="col-5 fw-bold small text-muted">选项值</div>' +
+            '<div class="col-5 fw-bold small text-muted">选项名称</div>' +
+            '<div class="col-2"></div></div>' +
+            '<div class="row g-2 mb-2 option-row">' +
+            '<div class="col-5"><input type="text" class="form-control" placeholder="值 (value)" name="opt-value"></div>' +
+            '<div class="col-5"><input type="text" class="form-control" placeholder="标签 (label)" name="opt-label"></div>' +
+            '<div class="col-2"><button type="button" class="btn btn-outline-danger w-100" onclick="removeOptionRow(this)"><i class="bi bi-x"></i></button></div></div>'
+        );
         $('#options-field').hide();
         new bootstrap.Modal($('#field-modal')).show();
     }
@@ -534,12 +454,17 @@
         $('#field-field_id').val(field.field_id);
         $('#field-field_name').val(field.field_name);
         $('#field-field_type').val(field.field_type);
-        $('#field-field_necessary').val(field.field_necessary);
+        $('#field-field_necessary').val(field.field_necessary ? '1' : '0');
         $('#field-field_seq').val(field.field_seq || 0);
+        $('#field-field_placeholder').val(field.field_placeholder || '2');
+        $('#field-field_readonly').val(field.field_readonly ? '1' : '0');
         
         // 选项
-        const options = field.field_options ? JSON.parse(field.field_options) : [];
-        let optionsHtml = '';
+        const options = field.field_options || [];
+        let optionsHtml = '<div class="row g-2 mb-2">' +
+            '<div class="col-5 fw-bold small text-muted">选项值</div>' +
+            '<div class="col-5 fw-bold small text-muted">选项名称</div>' +
+            '<div class="col-2"></div></div>';
         options.forEach(function(opt) {
             optionsHtml += `
                 <div class="row g-2 mb-2 option-row">
@@ -549,7 +474,7 @@
                 </div>
             `;
         });
-        $('#options-container').html(optionsHtml || `
+        $('#options-container').html(optionsHtml + `
             <div class="row g-2 mb-2 option-row">
                 <div class="col-5"><input type="text" class="form-control" placeholder="值 (value)" name="opt-value"></div>
                 <div class="col-5"><input type="text" class="form-control" placeholder="标签 (label)" name="opt-label"></div>
@@ -584,7 +509,9 @@
             field_type: fieldType,
             field_necessary: $('#field-field_necessary').val(),
             field_seq: $('#field-field_seq').val(),
-            field_options: JSON.stringify(options)
+            field_options: JSON.stringify(options),
+            field_placeholder: $('#field-field_placeholder').val(),
+            field_readonly: $('#field-field_readonly').val()
         };
         
         if (!data.field_id || !data.field_name) {
@@ -620,23 +547,6 @@
         });
     }
 
-    // 显示添加缩写模态框
-    function showAddAbbrModal() {
-        $('#abbr-form')[0].reset();
-        new bootstrap.Modal($('#abbr-modal')).show();
-    }
-
-    // 保存缩写
-    function saveAbbr() {
-        showToast('缩写映射功能开发中', 'info');
-        $('#abbr-modal').modal('hide');
-    }
-
-    // 筛选缩写
-    function filterAbbr() {
-        showToast('缩写映射功能开发中', 'info');
-    }
-
     // 切换选项字段显示
     function toggleOptionsField() {
         const type = $('#field-field_type').val();
@@ -659,51 +569,93 @@
         $(btn).closest('.option-row').remove();
     }
 
-    // 切换排序模式
-    function toggleSortMode(table) {
-        sortMode[table] = !sortMode[table];
-        $(`#${table}-fields`).toggleClass('sort-mode', sortMode[table]);
-        $(`#${table}-fields .sort-handle`).css('visibility', sortMode[table] ? 'visible' : 'hidden');
-        
-        if (sortMode[table]) {
-            initSortable(table);
+    // 切换编辑模式
+    function toggleEditMode(table) {
+        if (editMode[table]) {
+            // 当前是编辑模式，切换到保存状态
+            saveEdit(table);
+        } else {
+            // 切换到编辑模式
+            editMode[table] = true;
+            $(`#${table}-fields`).addClass('edit-mode');
+            $(`#${table}-edit-btn`).removeClass('btn-outline-secondary').addClass('btn-warning');
+            $(`#${table}-edit-text`).text('保存');
+            renderFieldLists();
         }
     }
 
-    // 初始化拖拽排序
-    function initSortable(table) {
-        // 使用原生HTML5拖拽API
+    // 取消编辑
+    function cancelEdit(table) {
+        editMode[table] = false;
+        $(`#${table}-fields`).removeClass('edit-mode');
+        $(`#${table}-edit-btn`).removeClass('btn-warning').addClass('btn-outline-secondary');
+        $(`#${table}-edit-text`).text('编辑模式');
+        renderFieldLists();
+    }
+
+    // 保存编辑
+    function saveEdit(table) {
+        const configs = [];
         const tbody = $(`#${table}-field-list`);
-        let dragged = null;
         
-        tbody.find('tr').attr('draggable', true);
-        
-        tbody.on('dragstart', 'tr', function() {
-            dragged = this;
-            this.style.opacity = '0.4';
+        // 收集所有修改的数据
+        tbody.find('input, select').each(function() {
+            const $input = $(this);
+            const id = $input.data('id');
+            const fieldKey = $input.data('field');
+            const value = $input.val();
+            
+            // 必须有id、field且value不为空
+            if (!id || !fieldKey || value === null || value === undefined) {
+                return;
+            }
+            
+            // field_id 不能为空，跳过
+            if (fieldKey === 'field_id') {
+                return;
+            }
+            
+            let existing = configs.find(c => c.id == id);
+            if (!existing) {
+                existing = {id: id};
+                configs.push(existing);
+            }
+            
+            // field_name 不能为空，跳过空值
+            if (fieldKey === 'field_name' && (!value || value.trim() === '')) {
+                return;
+            }
+            
+            // 处理数值类型字段
+            if (fieldKey === 'field_placeholder' || fieldKey === 'field_readonly' || fieldKey === 'field_necessary') {
+                existing[fieldKey] = parseInt(value) || 0;
+            } else {
+                existing[fieldKey] = value;
+            }
         });
         
-        tbody.on('dragend', 'tr', function() {
-            this.style.opacity = '1';
-            dragged = null;
+        // 过滤掉无效的配置（没有有效字段的）
+        const validConfigs = configs.filter(c => {
+            // 至少有一个可更新的字段
+            return Object.keys(c).some(k => k !== 'id');
         });
         
-        tbody.on('dragover', 'tr', function(e) {
-            e.preventDefault();
-        });
+        if (validConfigs.length === 0) {
+            cancelEdit(table);
+            return;
+        }
         
-        tbody.on('drop', 'tr', function(e) {
-            e.preventDefault();
-            if (dragged !== this) {
-                const rows = Array.from(tbody.find('tr'));
-                const srcIndex = rows.indexOf(dragged);
-                const targetIndex = rows.indexOf(this);
-                
-                if (srcIndex < targetIndex) {
-                    $(this).after(dragged);
-                } else {
-                    $(this).before(dragged);
-                }
+        // 批量更新
+        apiPost('/api/metadata/config/batch-update', {configs: validConfigs}).then(function(res) {
+            if (res.success) {
+                showToast('保存成功');
+                editMode[table] = false;
+                $(`#${table}-fields`).removeClass('edit-mode');
+                $(`#${table}-edit-btn`).removeClass('btn-warning').addClass('btn-outline-secondary');
+                $(`#${table}-edit-text`).text('编辑模式');
+                loadConfig();
+            } else {
+                showToast(res.message || '保存失败', 'error');
             }
         });
     }

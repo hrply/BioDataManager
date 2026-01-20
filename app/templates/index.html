@@ -99,22 +99,28 @@
 <script>
     // 加载统计数据
     function loadStats() {
-        apiGet('/api/projects').then(function(res) {
+        apiGet('/api/projects', {table: 'raw'}).then(function(res) {
             if (res.success) {
-                $('#raw-count').text(res.projects ? res.projects.length : 0);
+                $('#raw-count').text(res.data ? res.data.length : 0);
             }
+        }).catch(function(err) {
+            $('#raw-count').text('-');
         });
 
-        apiGet('/api/bioresult-projects').then(function(res) {
+        apiGet('/api/projects', {table: 'result'}).then(function(res) {
             if (res.success) {
-                $('#result-count').text(res.projects ? res.projects.length : 0);
+                $('#result-count').text(res.data ? res.data.length : 0);
             }
+        }).catch(function(err) {
+            $('#result-count').text('-');
         });
 
         apiGet('/api/processed-data').then(function(res) {
             if (res.success) {
                 $('#file-count').text(res.data ? res.data.length : 0);
             }
+        }).catch(function(err) {
+            $('#file-count').text('-');
         });
     }
 

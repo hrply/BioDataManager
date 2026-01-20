@@ -44,7 +44,7 @@ COPY assets/ /assets/
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # 创建bioraw目录结构（数据库设计规范要求）
-RUN mkdir -p /bioraw/data /bioraw/downloads /bioraw/results /bioraw/analysis
+RUN mkdir -p /bioraw/rawdata /bio/downloads /bio/results /bio/analysis
 
 # 复制本地字体文件到容器
 COPY assets/fonts/ /app/static/fonts/

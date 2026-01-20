@@ -78,16 +78,16 @@
                         {% for p in projects %}
                         <tr>
                             <td>{{ loop.index }}</td>
-                            <td><code>{{ p.id }}</code></td>
-                            <td>{{ p.data_type or '-' }}</td>
-                            <td>{{ p.organism or '-' }}</td>
-                            <td>{{ p.tissue or '-' }}</td>
-                            <td>{{ p.created_date[:10] if p.created_date else '-' }}</td>
+                            <td><code>{{ p.raw_id }}</code></td>
+                            <td>{{ p.raw_type or '-' }}</td>
+                            <td>{{ p.raw_species or '-' }}</td>
+                            <td>{{ p.raw_tissue or '-' }}</td>
+                            <td>{{ p.created_at.strftime('%Y-%m-%d') if p.created_at else '-' }}</td>
                             <td>
-                                <button class="btn btn-outline-primary btn-sm me-1" onclick="viewDetail('{{ p.id }}')" title="查看详情">
+                                <button class="btn btn-outline-primary btn-sm me-1" onclick="viewDetail('{{ p.raw_id }}')" title="查看详情">
                                     <i class="bi bi-eye"></i>
                                 </button>
-                                <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('{{ p.id }}')" title="删除">
+                                <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('{{ p.raw_id }}')" title="删除">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
@@ -125,7 +125,7 @@
             <div class="modal-body">
                 <form id="project-form">
                     <input type="hidden" id="project-id">
-                    <!-- 第一行：项目编号 + 引用文件 -->
+                    <!-- 第一行：项目编号 + 引文文件 -->
                     <div class="row mb-3">
                         <div class="col-md-8">
                             <label class="form-label">项目编号</label>
@@ -138,7 +138,7 @@
                         </div>
                         <div class="col-md-4 d-flex align-items-end">
                             <button type="button" class="btn btn-outline-primary w-100" onclick="showCitationModal()">
-                                <i class="bi bi-file-earmark-text me-1"></i>引用文件
+                                <i class="bi bi-file-earmark-text me-1"></i>引文文件
                             </button>
                         </div>
                     </div>
@@ -201,6 +201,17 @@
                         <label class="form-label">关键词</label>
                         <input type="text" class="form-control" id="project-raw_keywords" placeholder="多个关键词用逗号分隔">
                     </div>
+                    <!-- 只读字段：由系统自动管理 -->
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <label class="form-label text-muted">文件数量</label>
+                            <input type="text" class="form-control bg-light" id="project-raw_file_count" readonly>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-muted">文件总大小</label>
+                            <input type="text" class="form-control bg-light" id="project-raw_total_size" readonly>
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -229,12 +240,12 @@
     </div>
 </div>
 
-<!-- 引用文件解析模态框 -->
+<!-- 引文文件解析模态框 -->
 <div class="modal fade" id="citation-modal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">解析引用文件</h5>
+                <h5 class="modal-title">解析引文文件</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -265,6 +276,15 @@
     let currentPage = 1;
     const pageSize = 10;
 
+    // 格式化文件大小
+    function formatFileSize(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
     // 初始化
     $(document).ready(function() {
         loadProjects();
@@ -279,7 +299,7 @@
                 
                 rawFields.forEach(function(field) {
                     if (field.field_type === 'select' || field.field_type === 'multi_select') {
-                        const options = field.field_options ? JSON.parse(field.field_options) : [];
+                        const options = field.field_options || [];
                         const $select = $(`#project-${field.field_id}`);
                         const $filter = $(`#filter-${field.field_id}`);
                         
@@ -295,11 +315,13 @@
 
     // 加载项目列表
     function loadProjects() {
-        apiGet('/api/projects').then(function(res) {
+        apiGet('/api/projects', {table: 'raw'}).then(function(res) {
             if (res.success) {
-                projects = res.projects || [];
+                projects = res.data || [];
                 renderProjects();
             }
+        }).catch(function(err) {
+            showToast('加载项目列表失败', 'error');
         });
     }
 
@@ -408,7 +430,7 @@
     // 生成项目编号
     function generateProjectId() {
         const uuid = Math.random().toString(36).substring(2, 10).toUpperCase();
-        $('#project-raw_id').val(`RAW-{${uuid}}`);
+        $('#project-raw_id').val(`RAW_${uuid}`);
     }
 
     // 保存项目
@@ -425,7 +447,9 @@
             raw_author: $('#project-raw_author').val(),
             raw_article: $('#project-raw_article').val(),
             raw_description: $('#project-raw_description').val(),
-            raw_keywords: $('#project-raw_keywords').val()
+            raw_keywords: $('#project-raw_keywords').val(),
+            raw_file_count: $('#project-raw_file_count').val() || 0,
+            raw_total_size: $('#project-raw_total_size').val() || 0
         };
         
         if (!data.raw_title) {
@@ -504,6 +528,14 @@
                             <label class="text-muted small">期刊</label>
                             <div>${p.raw_article || '-'}</div>
                         </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">文件数量</label>
+                            <div>${p.raw_file_count || 0}</div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">文件总大小</label>
+                            <div>${formatFileSize(p.raw_total_size)}</div>
+                        </div>
                     </div>
                 `;
                 
@@ -541,25 +573,27 @@
         if (!confirm(`确定要删除项目 ${id} 吗？此操作不可恢复。`)) {
             return;
         }
-        
-        apiPost('/api/delete-project', {id: id}).then(function(res) {
+
+        apiDelete('/api/projects/raw/' + id).then(function(res) {
             if (res.success) {
                 showToast('项目已删除');
                 loadProjects();
             } else {
                 showToast(res.message || '删除失败', 'error');
             }
+        }).catch(function(err) {
+            showToast('删除失败: ' + (err.responseJSON?.message || err.statusText), 'error');
         });
     }
 
-    // 显示引用文件模态框
+    // 显示引文文件模态框
     function showCitationModal() {
         $('#citation-file').val('');
         $('#citation-info').hide();
         new bootstrap.Modal($('#citation-modal')).show();
     }
 
-    // 解析引用文件
+    // 解析引文文件
     function parseCitationFile() {
         const fileInput = document.getElementById('citation-file');
         if (!fileInput.files[0]) {
@@ -571,11 +605,61 @@
         const formData = new FormData();
         formData.append('file', file);
         
-        // TODO: 实现引用文件解析API
+        // 调用后端解析 API
         $('#citation-info').show();
-        $('#citation-msg').text(`已选择文件: ${file.name}，解析功能开发中...`);
+        $('#citation-msg').text(`正在解析文件: ${file.name}...`);
         
-        showToast('引用文件解析功能开发中', 'info');
+        $.ajax({
+            url: '/api/parse-citation',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(res) {
+                if (res.success) {
+                    $('#citation-msg').html(`
+                        <i class="bi bi-check-circle text-success"></i> 
+                        成功解析 ${res.count} 条文献<br>
+                        <small class="text-muted">解析结果已填入下方表单，请确认并保存</small>
+                    `);
+                    
+                    // 如果有解析结果，自动填入表单
+                    if (res.citations && res.citations.length > 0) {
+                        const first = res.citations[0].project;
+                        if (first.raw_title) $('#project-raw_title').val(first.raw_title);
+                        if (first.raw_DOI) $('#project-raw_DOI').val(first.raw_DOI);
+                        if (first.raw_article) $('#project-raw_article').val(first.raw_article);
+                        if (first.raw_description) $('#project-raw_description').val(first.raw_description);
+                        if (first.raw_keywords) $('#project-raw_keywords').val(first.raw_keywords);
+                        
+                        // 尝试匹配物种
+                        const speciesSelect = document.getElementById('project-raw_species');
+                        if (first.raw_species && speciesSelect) {
+                            for (let i = 0; i < speciesSelect.options.length; i++) {
+                                if (speciesSelect.options[i].text.includes(first.raw_species.split(' ')[0])) {
+                                    speciesSelect.selectedIndex = i;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    showToast('引文解析成功', 'success');
+                } else {
+                    $('#citation-msg').html(`
+                        <i class="bi bi-exclamation-circle text-danger"></i> 
+                        解析失败: ${res.message}
+                    `);
+                    showToast(res.message, 'error');
+                }
+            },
+            error: function(xhr, status, error) {
+                $('#citation-msg').html(`
+                    <i class="bi bi-exclamation-circle text-danger"></i> 
+                    网络错误: ${error}
+                `);
+                showToast('解析请求失败', 'error');
+            }
+        });
     }
 
     // 重置筛选

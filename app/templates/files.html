@@ -86,12 +86,12 @@
                                 {% for p in projects %}
                                 <tr>
                                     <td>{{ loop.index }}</td>
-                                    <td><code>{{ p.id }}</code></td>
-                                    <td>{{ p.title }}</td>
-                                    <td><span class="badge bg-info">{{ p.data_type_label }}</span></td>
-                                    <td>{{ p.file_count or 0 }}</td>
+                                    <td><code>{{ p.raw_id }}</code></td>
+                                    <td>{{ p.raw_title }}</td>
+                                    <td><span class="badge bg-info">{{ p.raw_type }}</span></td>
+                                    <td>{{ p.raw_file_count or 0 }}</td>
                                     <td>
-                                        <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('{{ p.id }}')">
+                                        <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('{{ p.raw_id }}')">
                                             <i class="bi bi-eye"></i> 查看
                                         </button>
                                     </td>
@@ -134,13 +134,6 @@
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
-</div>
-        </div>
-    </div>
-</div>
-
 <!-- 导入弹窗 -->
 <div class="modal fade" id="import-modal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg">
@@ -186,7 +179,7 @@
                 <div id="new-project-form">
                     <!-- 项目编号 (固定字段) -->
                     <div class="row g-2 mb-2">
-                        <div class="col-12">
+                        <div class="col-md-6">
                             <label class="form-label">项目编号 <span class="text-danger">*</span></label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="new-project-id" readonly>
@@ -194,6 +187,10 @@
                                     <i class="bi bi-arrow-repeat"></i>
                                 </button>
                             </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">项目名称 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="new-project-title" placeholder="请输入项目名称">
                         </div>
                     </div>
                     
@@ -296,7 +293,20 @@
         
         apiGet('/api/metadata/fields', { table: tableType }).then(function(res) {
             if (res.success && res.fields) {
-                metadataFields = res.fields;
+                // 过滤出可编辑字段（field_readonly=0）并按 field_seq 排序
+                const editableFields = res.fields
+                    .filter(f => f.field_readonly === false || f.field_readonly === 0)
+                    .sort((a, b) => a.field_seq - b.field_seq);
+                
+                // 排除前端已硬编码的前2个字段（raw_id, raw_title 或 results_id, results_title）
+                const dynamicFields = editableFields.slice(2);
+                
+                // 根据项目类型限制显示数量：
+                // 原始数据项目：显示排序前3-7号（共5个）
+                // 结果数据项目：显示排序前3-5号（共3个）
+                const maxFields = tableType === 'raw' ? 5 : 3;
+                metadataFields = dynamicFields.slice(0, maxFields);
+                
                 renderMetadataFields();
             } else {
                 metadataFields = [];
@@ -312,14 +322,9 @@
         const container = $('#dynamic-metadata-fields');
         
         if (metadataFields.length === 0) {
-            // 数据库为空时，只显示项目名称字段
+            // 没有字段时显示提示
             container.html(`
-                <div class="row g-2 mb-2">
-                    <div class="col-12">
-                        <label class="form-label">项目名称 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="metadata-title" placeholder="请输入项目名称">
-                    </div>
-                </div>
+                <p class="text-muted text-center py-3 mb-0">暂无可编辑的元数据字段</p>
             `);
             return;
         }
@@ -330,8 +335,10 @@
         
         metadataFields.forEach(function(field, index) {
             const colClass = colsPerRow === 2 ? 'col-md-6' : 'col-12';
-            const requiredMark = field.required ? '<span class="text-danger">*</span>' : '';
-            const fieldId = 'metadata-' + field.field_name;
+            const requiredMark = field.field_necessary ? '<span class="text-danger">*</span>' : '';
+            const fieldId = 'metadata-' + field.field_id;
+            const fieldLabel = field.field_name;
+            const fieldOptions = field.field_options || [];
             
             // 开始新行
             if (colIndex === 0) {
@@ -342,13 +349,12 @@
             let inputHtml = '';
             if (field.field_type === 'select' || field.field_type === 'multi_select') {
                 // 下拉选择框
-                const options = field.options || [];
                 const multiple = field.field_type === 'multi_select';
                 const selectAttr = multiple ? 'multiple' : '';
                 
-                inputHtml = `<select class="form-select" id="${fieldId}" name="${field.field_name}" ${selectAttr}>
+                inputHtml = `<select class="form-select" id="${fieldId}" name="${field.field_id}" ${selectAttr}>
                     <option value="">请选择...</option>
-                    ${options.map(function(opt) {
+                    ${fieldOptions.map(function(opt) {
                         const val = opt.value !== undefined ? opt.value : opt;
                         const label = opt.label !== undefined ? opt.label : opt;
                         return `<option value="${val}">${label}</option>`;
@@ -356,15 +362,15 @@
                 </select>`;
             } else if (field.field_type === 'textarea') {
                 // 文本域
-                inputHtml = `<textarea class="form-control" id="${fieldId}" name="${field.field_name}" rows="3" placeholder="请输入${field.label}"></textarea>`;
+                inputHtml = `<textarea class="form-control" id="${fieldId}" name="${field.field_id}" rows="3" placeholder="请输入${fieldLabel}"></textarea>`;
             } else {
                 // 文本输入框
-                inputHtml = `<input type="text" class="form-control" id="${fieldId}" name="${field.field_name}" placeholder="请输入${field.label}">`;
+                inputHtml = `<input type="text" class="form-control" id="${fieldId}" name="${field.field_id}" placeholder="请输入${fieldLabel}">`;
             }
             
             html += `
                 <div class="${colClass}">
-                    <label class="form-label">${field.label} ${requiredMark}</label>
+                    <label class="form-label">${fieldLabel} ${requiredMark}</label>
                     ${inputHtml}
                 </div>
             `;
@@ -388,22 +394,23 @@
         
         const formData = {
             project_id: $('#new-project-id').val(),
+            project_title: $('#new-project-title').val(),
             data_type: isRaw ? 'raw' : 'result'
         };
         
-        // 收集动态字段
+        // metadataFields 已经是过滤后的字段（只读字段已排除），直接遍历收集数据
         metadataFields.forEach(function(field) {
-            const fieldName = field.field_name;
-            const fieldEl = $(`[name="${fieldName}"]`);
+            const fieldId = field.field_id;
+            const fieldEl = $(`[name="${fieldId}"]`);
             
             if (field.field_type === 'multi_select') {
                 const values = [];
                 fieldEl.find('option:selected').each(function() {
                     values.push($(this).val());
                 });
-                formData[fieldName] = values;
+                formData[fieldId] = values;
             } else {
-                formData[fieldName] = fieldEl.val();
+                formData[fieldId] = fieldEl.val();
             }
         });
         
@@ -414,12 +421,17 @@
     function validateFormData(data) {
         const errors = [];
         
-        // 检查必填字段
+        // 检查项目名称
+        if (!data.project_title) {
+            errors.push('项目名称为必填字段');
+        }
+        
+        // metadataFields 已经是过滤后的字段，直接遍历即可
         metadataFields.forEach(function(field) {
-            if (field.required) {
-                const value = data[field.field_name];
+            if (field.field_necessary) {
+                const value = data[field.field_id];
                 if (!value || (Array.isArray(value) && value.length === 0)) {
-                    errors.push(`${field.label} 为必填字段`);
+                    errors.push(`${field.field_name} 为必填字段`);
                 }
             }
         });
@@ -430,14 +442,14 @@
     // 更新项目编号前缀
     function updateProjectIdPrefix() {
         const dataType = $('input[name="data-type"]:checked').attr('id');
-        const prefix = dataType === 'type-raw' ? 'RAW-' : 'RES-';
+        const prefix = dataType === 'type-raw' ? 'RAW_' : 'RES_';
         $('#new-project-id').val(prefix + '________');
     }
 
     // 生成项目编号
     function generateProjectId() {
         const dataType = $('input[name="data-type"]:checked').attr('id');
-        const prefix = dataType === 'type-raw' ? 'RAW-' : 'RES-';
+        const prefix = dataType === 'type-raw' ? 'RAW_' : 'RES_';
         const uuid = Math.random().toString(36).substring(2, 10).toUpperCase();
         $('#new-project-id').val(prefix + uuid);
     }
@@ -544,13 +556,14 @@
             let html = '';
             projects.forEach(function(p, index) {
                 const dataTypeLabel = getDataTypeLabel(p.data_type || p.results_type);
+                const fileCount = p.raw_file_count || p.results_file_count || 0;
                 html += `
                     <tr>
                         <td>${index + 1}</td>
                         <td><code>${p.id || p.raw_id || p.results_id}</code></td>
                         <td>${p.title || p.raw_title || p.results_title}</td>
                         <td><span class="badge bg-info">${dataTypeLabel}</span></td>
-                        <td>${p.file_count || 0}</td>
+                        <td>${fileCount}</td>
                         <td>
                             <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('${p.id || p.raw_id || p.results_id}')">
                                 <i class="bi bi-eye"></i> 查看
@@ -589,8 +602,8 @@
         
         // 并发加载原始数据和结果数据项目
         apiGet('/api/projects').then(function(res) {
-            if (res.success && res.projects) {
-                projects = res.projects;
+            if (res.success && res.data) {
+                projects = res.data;
                 renderProjectList();
             }
         });
@@ -778,20 +791,20 @@
     }
 
     function showProjectDetail(projectId) {
-        apiGet('/api/projects/' + projectId).then(function(res) {
+        apiGet('/api/projects/raw/' + projectId).then(function(res) {
             if (res.success && res.project) {
                 const p = res.project;
                 const content = $('#detail-content');
-                
+
                 let html = `
                     <div class="row mb-3">
                         <div class="col-md-6"><strong>项目编号:</strong> ${p.raw_id}</div>
-                        <div class="col-md-6"><strong>数据类型:</strong> ${getDataTypeLabel(p.data_type)}</div>
+                        <div class="col-md-6"><strong>数据类型:</strong> ${p.raw_type || '-'}</div>
                     </div>
-                    <div class="mb-3"><strong>项目名称:</strong> ${p.raw_title}</div>
-                    <div class="mb-3"><strong>物种:</strong> ${p.organism || '-'}</div>
-                    ${p.doi ? `<div class="mb-3"><strong>DOI:</strong> ${p.doi}</div>` : ''}
-                    ${p.description ? `<div class="mb-3"><strong>描述:</strong> ${p.description}</div>` : ''}
+                    <div class="mb-3"><strong>项目名称:</strong> ${p.raw_title || '-'}</div>
+                    <div class="mb-3"><strong>物种:</strong> ${p.raw_species || '-'}</div>
+                    ${p.raw_DOI ? `<div class="mb-3"><strong>DOI:</strong> ${p.raw_DOI}</div>` : ''}
+                    ${p.raw_description ? `<div class="mb-3"><strong>描述:</strong> ${p.raw_description}</div>` : ''}
                     <hr>
                     <div class="mb-2"><strong>文件列表:</strong></div>
                     <div class="table-responsive">
@@ -799,7 +812,7 @@
                             <thead><tr><th>文件名</th><th>大小</th><th><input type="checkbox" onchange="toggleAllProjectFiles(this)"></th></tr></thead>
                             <tbody>
                 `;
-                
+
                 (p.files || []).forEach(function(f) {
                     html += `<tr>
                         <td>${f.file_name}</td>
@@ -807,16 +820,20 @@
                         <td><input type="checkbox" class="project-file-check" value="${f.file_path}"></td>
                     </tr>`;
                 });
-                
+
                 html += `
                             </tbody>
                         </table>
                     </div>
                 `;
-                
+
                 content.html(html);
                 new bootstrap.Modal($('#detail-modal')).show();
+            } else {
+                showToast(res.message || '获取项目详情失败', 'error');
             }
+        }).catch(function(err) {
+            showToast('获取项目详情失败: ' + (err.responseJSON?.message || err.statusText), 'error');
         });
     }
 

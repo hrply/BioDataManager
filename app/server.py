@@ -11,6 +11,8 @@ import sys
 import json
 import uuid
 import threading
+import random
+import string
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from datetime import datetime
@@ -22,12 +24,13 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 from backend import BioDataManager
 from database_mysql import DatabaseManager
 from metadata_config_manager_mysql import MetadataConfigManager
+from citation_parser import CitationParser
 
 # 硬编码路径配置（数据库设计规范要求）
 BIORAW_BASE_DIR = Path("/bioraw")
-DATA_DIR = BIORAW_BASE_DIR / "data"
-DOWNLOADS_DIR = BIORAW_BASE_DIR / "downloads"
-RESULTS_DIR = BIORAW_BASE_DIR / "results"
+RAW_DATA_DIR = BIORAW_BASE_DIR / "rawdata"
+DOWNLOADS_DIR = Path("/bio") / "downloads"
+RESULTS_DIR = Path("/bio") / "results"
 
 # Flask 应用配置
 app = Flask(__name__)
@@ -140,7 +143,7 @@ def raw_data():
     try:
         mgr = get_manager()
         if mgr:
-            projects = mgr.get_all_projects()
+            projects = mgr.get_all_raw_projects()
     except Exception as e:
         print(f"获取原始数据项目列表失败: {e}")
     return render_template('raw_data.html', projects=projects)
@@ -153,7 +156,7 @@ def results():
     try:
         mgr = get_manager()
         if mgr:
-            bioresult_projects = mgr.get_all_bioresult_projects()
+            bioresult_projects = mgr.get_all_result_projects()
     except Exception as e:
         print(f"获取结果项目列表失败: {e}")
     return render_template('results.html', bioresult_projects=bioresult_projects)
@@ -166,10 +169,7 @@ def files():
     try:
         mgr = get_manager()
         if mgr:
-            projects = mgr.get_all_projects()
-            # 添加显示标签
-            for p in projects:
-                p['data_type_label'] = p.get('data_type', '未分类')
+            projects = mgr.get_all_raw_projects()
     except Exception as e:
         print(f"获取项目列表失败: {e}")
     return render_template('files.html', projects=projects)
@@ -181,39 +181,46 @@ def metadata():
     raw_configs = []
     result_configs = []
     file_configs = []
-    abbr_mappings = []
     try:
         config_mgr = get_config_manager()
         if config_mgr:
             all_configs = config_mgr.get_all_configs()
             for c in all_configs:
-                # 计算选项数量
-                options_count = 0
-                if c.get('field_options'):
-                    try:
-                        options = json.loads(c['field_options'])
-                        options_count = len(options) if isinstance(options, list) else 0
-                    except:
-                        pass
-                c['options_count'] = options_count
-                
                 if c.get('field_table') == 'raw':
                     raw_configs.append(c)
                 elif c.get('field_table') == 'result':
                     result_configs.append(c)
                 elif c.get('field_table') == 'file':
                     file_configs.append(c)
-            
-            # 简化缩写映射（这里只是占位，实际需要单独的表）
-            abbr_mappings = []
     except Exception as e:
         print(f"获取元数据配置失败: {e}")
     
     return render_template('metadata.html', 
                            raw_configs=raw_configs,
                            result_configs=result_configs,
-                           file_configs=file_configs,
-                           abbr_mappings=abbr_mappings)
+                           file_configs=file_configs)
+
+
+# ==================== 全局错误处理 ====================
+
+@app.errorhandler(500)
+def handle_500(error):
+    """处理500错误，防止服务崩溃"""
+    print(f"服务器错误: {error}")
+    return jsonify({'success': False, 'message': '服务器内部错误，请稍后重试'}), 500
+
+
+@app.errorhandler(404)
+def handle_404(error):
+    """处理404错误"""
+    return jsonify({'success': False, 'message': '请求的资源不存在'}), 404
+
+
+@app.errorhandler(Exception)
+def handle_exception(error):
+    """全局异常处理，防止未捕获的异常导致服务崩溃"""
+    print(f"未捕获的异常: {error}")
+    return jsonify({'success': False, 'message': '请求处理失败，请稍后重试'}), 500
 
 
 # ==================== 静态文件路由 ====================
@@ -232,21 +239,158 @@ def serve_lib(filename):
     return send_from_directory(libs_dir, filename)
 
 
+# ==================== API 路由 - 字段配置 ====================
+
+@app.route('/api/fields')
+def api_get_fields():
+    """获取字段配置"""
+    field_table = request.args.get('table', '')
+    try:
+        if field_table:
+            configs = get_config_manager().get_configs_by_table(field_table)
+        else:
+            configs = get_config_manager().get_all_configs()
+        return jsonify({'success': True, 'fields': configs})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/options')
+def api_get_options():
+    """获取下拉选项"""
+    option_type = request.args.get('type', '')
+    if not option_type:
+        return jsonify({'success': False, 'message': '缺少option_type参数'})
+    try:
+        options = get_config_manager().get_select_options(option_type)
+        return jsonify({'success': True, 'options': options})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
 # ==================== API 路由 - 项目管理 ====================
 
 @app.route('/api/projects')
 def api_get_projects():
-    """获取所有项目"""
+    """获取项目列表（支持table参数）"""
+    table = request.args.get('table', '')
     try:
-        projects = get_manager().get_all_projects()
+        if table == 'raw':
+            projects = get_manager().get_all_raw_projects()
+        elif table == 'result':
+            projects = get_manager().get_all_result_projects()
+        else:
+            # 默认返回原始数据项目
+            projects = get_manager().get_all_raw_projects()
+        return jsonify({'success': True, 'data': projects, 'total': len(projects)})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/bioresult-projects')
+def api_get_bio_result_projects():
+    """获取结果项目列表（兼容旧版前端）"""
+    try:
+        projects = get_manager().get_all_result_projects()
         return jsonify({'success': True, 'projects': projects})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
 
+@app.route('/api/projects', methods=['POST'])
+def api_create_project():
+    """创建项目"""
+    try:
+        data = request.get_json()
+        table = data.get('table', 'raw')
+        
+        if table == 'raw':
+            project = get_manager().create_raw_project(data)
+        elif table == 'result':
+            project = get_manager().create_result_project(data)
+        else:
+            return jsonify({'success': False, 'message': '无效的table类型'})
+        
+        return jsonify({'success': True, 'project': project})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/raw/<raw_id>')
+def api_get_raw_project(raw_id):
+    """获取原始数据项目"""
+    try:
+        project = get_manager().get_raw_project_by_id(raw_id)
+        if project:
+            return jsonify({'success': True, 'project': project})
+        else:
+            return jsonify({'success': False, 'message': '项目不存在'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/raw/<raw_id>', methods=['PUT'])
+def api_update_raw_project(raw_id):
+    """更新原始数据项目"""
+    try:
+        data = request.get_json()
+        data['raw_id'] = raw_id
+        success = get_manager().update_raw_project(data)
+        return jsonify({'success': success})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/raw/<raw_id>', methods=['DELETE'])
+def api_delete_raw_project(raw_id):
+    """删除原始数据项目"""
+    try:
+        success = get_manager().delete_raw_project(raw_id)
+        return jsonify({'success': success})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/result/<results_id>')
+def api_get_result_project(results_id):
+    """获取结果数据项目"""
+    try:
+        project = get_manager().get_result_project_by_id(results_id)
+        if project:
+            return jsonify({'success': True, 'project': project})
+        else:
+            return jsonify({'success': False, 'message': '项目不存在'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/result/<results_id>', methods=['PUT'])
+def api_update_result_project(results_id):
+    """更新结果数据项目"""
+    try:
+        data = request.get_json()
+        data['results_id'] = results_id
+        success = get_manager().update_result_project(data)
+        return jsonify({'success': success})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/result/<results_id>', methods=['DELETE'])
+def api_delete_result_project(results_id):
+    """删除结果数据项目"""
+    try:
+        success = get_manager().delete_result_project(results_id)
+        return jsonify({'success': success})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+# ==================== API 路由 - 兼容性（旧API）====================
+
 @app.route('/api/project')
 def api_get_project():
-    """获取特定项目"""
+    """获取特定项目（兼容旧API）"""
     project_id = request.args.get('id')
     if not project_id:
         return jsonify({'success': False, 'message': '缺少项目ID'})
@@ -256,86 +400,6 @@ def api_get_project():
             return jsonify({'success': True, 'project': project})
         else:
             return jsonify({'success': False, 'message': '项目不存在'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-@app.route('/api/create-project', methods=['POST'])
-def api_create_project():
-    """创建新项目"""
-    try:
-        data = request.get_json()
-        project = get_manager().create_project(data)
-        return jsonify({'success': True, 'project': project})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-@app.route('/api/update-project', methods=['POST'])
-def api_update_project():
-    """更新项目"""
-    try:
-        data = request.get_json()
-        success = get_manager().update_project(data)
-        return jsonify({'success': success})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-@app.route('/api/delete-project', methods=['POST'])
-def api_delete_project():
-    """删除项目（原始数据或结果数据）"""
-    try:
-        data = request.get_json()
-        project_id = data.get('id')
-        if not project_id:
-            return jsonify({'success': False, 'message': '缺少项目ID'})
-        
-        # 优先尝试删除原始数据项目
-        success = get_manager().delete_project(project_id)
-        
-        # 如果原始数据项目删除失败，尝试删除结果项目
-        if not success:
-            success = get_manager().delete_bioresult_project(project_id)
-        
-        if not success:
-            return jsonify({'success': False, 'message': '项目不存在或删除失败'})
-        
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-# ==================== API 路由 - 结果数据 ====================
-
-@app.route('/api/bioresult-projects')
-def api_get_bioresult_projects():
-    """获取生物结果项目"""
-    try:
-        projects = get_manager().get_all_bioresult_projects()
-        return jsonify({'success': True, 'projects': projects})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
-
-
-@app.route('/api/bioresult-project', methods=['POST'])
-def api_bioresult_project():
-    """处理生物结果项目操作"""
-    try:
-        data = request.get_json()
-        action = data.get('action', 'create')
-        if action == 'create':
-            project = get_manager().create_bioresult_project(data)
-            return jsonify({'success': True, 'project': project})
-        elif action == 'update':
-            success = get_manager().update_bioresult_project(data)
-            return jsonify({'success': success})
-        elif action == 'delete':
-            project_id = data.get('id')
-            success = get_manager().delete_bioresult_project(project_id)
-            return jsonify({'success': success})
-        else:
-            return jsonify({'success': False, 'message': '未知操作'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -376,10 +440,92 @@ def api_import_download():
         data = request.get_json()
         project_id = data.get('project_id')
         files = data.get('files', [])
+        project_info = data.get('project_info', {})
+        folder_name = data.get('folder_name')
+        
+        # 如果没有 project_id但有 project_info，则创建新项目
+        if not project_id and project_info:
+            project = get_manager().create_project(project_info)
+            # create_project 返回的是项目字典（包含 raw_id）
+            if not project:
+                return jsonify({'success': False, 'message': '创建项目失败'})
+            # 获取项目ID
+            project_id = project.get('raw_id') or project.get('results_id') or project.get('id')
+            if not project_id:
+                return jsonify({'success': False, 'message': '创建项目成功但无法获取项目ID'})
+        
         if not project_id or not files:
             return jsonify({'success': False, 'message': '缺少参数'})
-        result = get_manager().import_download_files(project_id, files)
+        result = get_manager().import_download_files(project_id, files, folder_name)
         return jsonify({'success': True, 'result': result})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+# ==================== API 路由 - 引文解析 ====================
+
+@app.route('/api/parse-citation', methods=['POST'])
+def api_parse_citation():
+    """解析引文文件 (支持 .bib, .ris, .enw 格式)"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'message': '没有上传文件'})
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': '没有选择文件'})
+        
+        # 检查文件格式
+        filename = file.filename.lower()
+        if not filename.endswith(('.bib', '.ris', '.enw')):
+            return jsonify({
+                'success': False, 
+                'message': f'不支持的文件格式，仅支持 .bib, .ris, .enw'
+            })
+        
+        # 保存临时文件
+        import tempfile
+        with tempfile.NamedTemporaryFile(
+            suffix=Path(filename).suffix, 
+            delete=False,
+            mode='w',
+            encoding='utf-8'
+        ) as tmp:
+            tmp.write(file.read().decode('utf-8'))
+            tmp_path = tmp.name
+        
+        try:
+            # 解析引文文件
+            parser = CitationParser()
+            citations = parser.parse_file(tmp_path)
+            
+            if not citations:
+                return jsonify({
+                    'success': False, 
+                    'message': '未能解析文件内容，请检查文件格式是否正确'
+                })
+            
+            # 转换为项目数据
+            projects = []
+            for citation in citations:
+                project_data = parser.citation_to_project(citation)
+                projects.append({
+                    'citation': citation,
+                    'project': project_data,
+                })
+            
+            return jsonify({
+                'success': True,
+                'count': len(projects),
+                'citations': projects
+            })
+            
+        finally:
+            # 清理临时文件
+            import os
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+                
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -425,6 +571,17 @@ def api_import_processed_file():
         data = request.get_json()
         project_id = data.get('project_id')
         file_path = data.get('file_path')
+        project_info = data.get('project_info', {})
+        
+        # 如果没有 project_id 但有 project_info，则创建新项目
+        if not project_id and project_info:
+            project = get_manager().create_project(project_info)
+            if not project:
+                return jsonify({'success': False, 'message': '创建项目失败'})
+            project_id = project.get('results_id') or project.get('raw_id') or project.get('id')
+            if not project_id:
+                return jsonify({'success': False, 'message': '创建项目成功但无法获取项目ID'})
+        
         if not project_id or not file_path:
             return jsonify({'success': False, 'message': '缺少参数'})
         result = get_manager().import_processed_file(project_id, file_path)
@@ -437,7 +594,7 @@ def api_import_processed_file():
 
 @app.route('/api/metadata/config')
 def api_get_metadata_config():
-    """获取元数据配置"""
+    """获取元数据配置（兼容旧API）"""
     try:
         config = get_config_manager().get_all_configs()
         return jsonify({'success': True, 'config': config})
@@ -447,12 +604,10 @@ def api_get_metadata_config():
 
 @app.route('/api/metadata/fields')
 def api_get_metadata_fields():
-    """获取指定表类型和数据集类型的元数据字段"""
-    field_table = request.args.get('table', 'raw')  # raw, result, file
-    data_type = request.args.get('data_type', None)  # 数据类型筛选
-    
+    """获取指定表类型的元数据字段（兼容旧API）"""
+    field_table = request.args.get('table', 'raw')
     try:
-        config = get_config_manager().get_configs_by_table(field_table, data_type)
+        config = get_config_manager().get_configs_by_table(field_table)
         return jsonify({'success': True, 'fields': config})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -490,6 +645,38 @@ def api_delete_metadata_config():
             return jsonify({'success': False, 'message': '缺少配置ID'})
         success = get_config_manager().delete_config(config_id)
         return jsonify({'success': success})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/metadata/config/columns')
+def api_get_metadata_columns():
+    """获取 field_config 表的列信息（用于前端动态生成列标题）"""
+    try:
+        columns = get_config_manager().get_field_config_columns()
+        return jsonify({'success': True, 'columns': columns})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/metadata/config/batch-update', methods=['POST'])
+def api_batch_update_metadata_config():
+    """批量更新元数据配置"""
+    try:
+        data = request.get_json()
+        configs = data.get('configs', [])
+        if not configs:
+            return jsonify({'success': False, 'message': '缺少配置'})
+        
+        success = True
+        for config_data in configs:
+            config_id = config_data.get('id')
+            if not config_id:
+                continue
+            if not get_config_manager().update_config(config_data):
+                success = False
+        
+        return jsonify({'success': success, 'message': '批量更新成功' if success else '部分更新失败'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -548,16 +735,23 @@ def api_all_tasks():
 def run_server(port=8000):
     """运行Flask服务器"""
     # 确保数据目录存在
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     
     print(f"BioData Manager Flask 服务器运行在端口 {port}")
-    print(f"数据目录: {DATA_DIR}")
+    print(f"原始数据目录: {RAW_DATA_DIR}")
     print(f"下载目录: {DOWNLOADS_DIR}")
     print(f"结果目录: {RESULTS_DIR}")
     
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # 使用 threaded=True 支持并发请求，优化连接池配置
+    app.run(
+        host='0.0.0.0', 
+        port=port, 
+        debug=False, 
+        threaded=True,
+        passthrough_errors=True
+    )
 
 
 if __name__ == '__main__':

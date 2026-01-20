@@ -6,20 +6,36 @@ BioData Manager - 数据库初始化脚本
 创建数据库表、初始化默认配置
 """
 
-import json
 import sys
+import argparse
 from pathlib import Path
 
 # 添加app目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent))
 
 from database_mysql import DatabaseManager
-from metadata_config_manager_mysql import MetadataConfigManager
 
 
-def init_database():
-    """初始化数据库"""
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description='BioData Manager 数据库初始化')
+    parser.add_argument('--force', action='store_true', 
+                        help='强制重建模式：清空并重新初始化所有配置数据')
+    return parser.parse_args()
+
+
+def init_database(force=False):
+    """初始化数据库
+    
+    Args:
+        force: 是否强制重建模式
+    """
     print("开始初始化数据库...")
+    
+    if force:
+        print("⚠️  强制重建模式：将清空并重新初始化所有配置数据")
+    else:
+        print("📝 追加模式：只添加不存在的配置，已存在的配置将更新")
     
     # 连接数据库
     db = DatabaseManager()
@@ -32,12 +48,18 @@ def init_database():
         print("创建数据表...")
         db.create_tables()
         
-        # 初始化元数据配置
-        print("初始化元数据配置...")
-        config_manager = MetadataConfigManager(db)
-        init_metadata_config(config_manager)
+        # 初始化配置数据
+        print("初始化 field_config...")
+        init_field_config(db, force)
         
-        print("数据库初始化完成!")
+        print("初始化 select_options...")
+        init_select_options(db, force)
+        
+        print("初始化 abbr_mapping...")
+        init_abbr_mapping(db, force)
+        
+        mode_str = "强制重建" if force else "追加"
+        print(f"数据库初始化完成! (模式: {mode_str})")
         return True
         
     except Exception as e:
@@ -47,143 +69,409 @@ def init_database():
         db.disconnect()
 
 
-def init_metadata_config(config_manager):
-    """初始化元数据配置"""
-    # 默认字段配置
-    default_configs = [
-        {
-            'field_name': 'data_type',
-            'label': '数据类型',
-            'field_type': 'multi_select',
-            'options': json.dumps([
-                {'value': 'rnaseq', 'label': '转录组 (RNA-Seq)'},
-                {'value': 'singlecell', 'label': '单细胞转录组 (Single-cell)'},
-                {'value': 'spatial', 'label': '空间转录组 (Spatial)'},
-                {'value': 'proteomics', 'label': '蛋白组 (Proteomics)'},
-                {'value': 'phosphoproteomics', 'label': '磷酸化组 (Phosphoproteomics)'},
-                {'value': 'mass_cytometry', 'label': '质谱流式 (CyTOF)'},
-                {'value': 'multiomics', 'label': '多组学 (Multi-omics)'},
-                {'value': 'other', 'label': '其他 (Other)'}
-            ]),
-            'required': True,
-            'sort_order': 1
-        },
-        {
-            'field_name': 'organism',
-            'label': '物种',
-            'field_type': 'multi_select',
-            'options': json.dumps([
-                {'value': 'Homo sapiens', 'label': '人类 (Homo sapiens)'},
-                {'value': 'Mus musculus', 'label': '小鼠 (Mus musculus)'},
-                {'value': 'Rattus norvegicus', 'label': '大鼠 (Rattus norvegicus)'},
-                {'value': 'Danio rerio', 'label': '斑马鱼 (Danio rerio)'},
-                {'value': 'Drosophila melanogaster', 'label': '果蝇 (Drosophila melanogaster)'},
-                {'value': 'Caenorhabditis elegans', 'label': '秀丽隐杆线虫 (C. elegans)'},
-                {'value': 'Arabidopsis thaliana', 'label': '拟南芥 (Arabidopsis thaliana)'},
-                {'value': 'Saccharomyces cerevisiae', 'label': '酿酒酵母 (S. cerevisiae)'},
-                {'value': 'Escherichia coli', 'label': '大肠杆菌 (E. coli)'},
-                {'value': 'other', 'label': '其他'}
-            ], ensure_ascii=False),
-            'required': True,
-            'sort_order': 2
-        },
-        {
-            'field_name': 'tissue_type',
-            'label': '样本类型',
-            'field_type': 'select',
-            'options': json.dumps([
-                {'value': 'whole_blood', 'label': '全血'},
-                {'value': 'pbmc', 'label': '外周血单个核细胞 (PBMC)'},
-                {'value': 'tumor', 'label': '肿瘤组织'},
-                {'value': 'normal_tissue', 'label': '正常组织'},
-                {'value': 'cell_line', 'label': '细胞系'},
-                {'value': 'primary_cells', 'label': '原代细胞'},
-                {'value': 'tissue_lysate', 'label': '组织裂解物'},
-                {'value': 'other', 'label': '其他'}
-            ], ensure_ascii=False),
-            'required': False,
-            'sort_order': 3
-        },
-        {
-            'field_name': 'disease',
-            'label': '疾病背景',
-            'field_type': 'text',
-            'options': json.dumps([]),
-            'required': False,
-            'sort_order': 4
-        },
-        {
-            'field_name': 'doi',
-            'label': 'DOI',
-            'field_type': 'text',
-            'options': json.dumps([]),
-            'required': False,
-            'sort_order': 5
-        },
-        {
-            'field_name': 'db_id',
-            'label': '数据库编号',
-            'field_type': 'text',
-            'options': json.dumps([]),
-            'required': False,
-            'sort_order': 6
-        },
-        {
-            'field_name': 'authors',
-            'label': '作者',
-            'field_type': 'text',
-            'options': json.dumps([]),
-            'required': False,
-            'sort_order': 7
-        },
-        {
-            'field_name': 'journal',
-            'label': '期刊',
-            'field_type': 'text',
-            'options': json.dumps([]),
-            'required': False,
-            'sort_order': 8
-        },
-        {
-            'field_name': 'tags',
-            'label': '标签',
-            'field_type': 'multi_select',
-            'options': json.dumps([
-                {'value': 'public', 'label': '公开数据'},
-                {'value': 'controlled', 'label': '受控访问'},
-                {'value': 'raw', 'label': '原始数据'},
-                {'value': 'processed', 'label': '处理后数据'},
-                {'value': 'quality_control', 'label': '质量控制'},
-                {'value': 'replicate', 'label': '生物学重复'},
-                {'value': 'time_series', 'label': '时间序列'},
-                {'value': 'treatment', 'label': '处理组'},
-                {'value': 'control', 'label': '对照组'}
-            ], ensure_ascii=False),
-            'required': False,
-            'sort_order': 9
-        },
-        {
-            'field_name': 'description',
-            'label': '描述',
-            'field_type': 'textarea',
-            'options': json.dumps([]),
-            'required': False,
-            'sort_order': 10
-        }
+def init_field_config(db, force=False):
+    """初始化 field_config 表
+    
+    Args:
+        db: 数据库连接
+        force: 是否强制重建模式
+    """
+    import json
+
+    # 原始数据字段配置 (field_id, field_name, field_type, field_table, field_necessary, field_seq, field_options, field_placeholder, field_readonly)
+    raw_fields = [
+        ('raw_id', '项目编号', 'text', 'raw', 1, 0, None, '2', 0),
+        ('raw_title', '项目名称', 'text', 'raw', 1, 1, None, '2', 0),
+        ('raw_type', '数据类型', 'select', 'raw', 1, 2, json.dumps([
+            {"value": "mRNAseq", "label": "转录组"},
+            {"value": "Long-Read RNAseq", "label": "长读转录组"},
+            {"value": "lncRNAseq", "label": "lncRNAseq"},
+            {"value": "miRNAseq", "label": "miRNAseq"},
+            {"value": "sRNAseq", "label": "小RNA转录组"},
+            {"value": "epitRNAseq", "label": "表观转录组"},
+            {"value": "scRNAseq", "label": "单细胞转录组"},
+            {"value": "LR-scRNAseq", "label": "长读单细胞转录组"},
+            {"value": "蛋白组", "label": "蛋白组"},
+            {"value": "磷酸化组", "label": "磷酸化组"},
+            {"value": "泛素化组", "label": "泛素化组"},
+            {"value": "乙酰化组", "label": "乙酰化组"},
+            {"value": "SUMO PTMome", "label": "SUMO PTMome"},
+            {"value": "甲基化组", "label": "甲基化组"},
+            {"value": "糖基化组", "label": "糖基化组"},
+            {"value": "棕榈酰化组", "label": "棕榈酰化组"},
+            {"value": "代谢组", "label": "代谢组"},
+            {"value": "脂质组学", "label": "脂质组学"},
+            {"value": "免疫组学", "label": "免疫组学"},
+            {"value": "空间多组学", "label": "空间多组学"},
+        ]), '2', 0),
+        ('raw_species', '物种', 'select', 'raw', 1, 3, json.dumps([
+            {"value": "Homo sapiens", "label": "人"},
+            {"value": "Mus musculus", "label": "小鼠"},
+            {"value": "Rattus norvegicus", "label": "大鼠"},
+            {"value": "Others", "label": "其他"},
+        ]), '2', 0),
+        ('raw_tissue', '组织来源', 'multi_select', 'raw', 0, 4, json.dumps([
+            {"value": "Not Specific", "label": "Not Specific (非单一组织)"},
+            {"value": "Adipose tissue", "label": "Adipose tissue (脂肪组织)"},
+            {"value": "Adrenal gland", "label": "Adrenal gland (肾上腺)"},
+            {"value": "Amygdala", "label": "Amygdala (杏仁核)"},
+            {"value": "Basal ganglia", "label": "Basal ganglia (基底神经节)"},
+            {"value": "Blood vessel", "label": "Blood vessel (血管)"},
+            {"value": "Bone marrow", "label": "Bone marrow (骨髓)"},
+            {"value": "Breast", "label": "Breast (乳房)"},
+            {"value": "Cerebellum", "label": "Cerebellum (小脑)"},
+            {"value": "Cerebral cortex", "label": "Cerebral cortex (大脑皮层)"},
+            {"value": "Cervix", "label": "Cervix (子宫颈)"},
+            {"value": "Choroid plexus", "label": "Choroid plexus (脉络丛)"},
+            {"value": "Colon", "label": "Colon (结肠)"},
+            {"value": "Duodenum", "label": "Duodenum (十二指肠)"},
+            {"value": "Endometrium", "label": "Endometrium (子宫内膜)"},
+            {"value": "Epididymis", "label": "Epididymis (附睾)"},
+            {"value": "Esophagus", "label": "Esophagus (食管)"},
+            {"value": "Fallopian tube", "label": "Fallopian tube (输卵管)"},
+            {"value": "Gallbladder", "label": "Gallbladder (胆囊)"},
+            {"value": "Heart muscle", "label": "Heart muscle (心肌)"},
+            {"value": "Hippocampal formation", "label": "Hippocampal formation (海马结构)"},
+            {"value": "Hypothalamus", "label": "Hypothalamus (下丘脑)"},
+            {"value": "Kidney", "label": "Kidney (肾脏)"},
+            {"value": "Liver", "label": "Liver (肝脏)"},
+            {"value": "Lung", "label": "Lung (肺)"},
+            {"value": "Lymph node", "label": "Lymph node (淋巴结)"},
+            {"value": "Midbrain", "label": "Midbrain (中脑)"},
+            {"value": "Ovary", "label": "Ovary (卵巢)"},
+            {"value": "Pancreas", "label": "Pancreas (胰腺)"},
+            {"value": "Parathyroid gland", "label": "Parathyroid gland (甲状旁腺)"},
+            {"value": "Pituitary gland", "label": "Pituitary gland (垂体)"},
+            {"value": "Placenta", "label": "Placenta (胎盘)"},
+            {"value": "Prostate", "label": "Prostate (前列腺)"},
+            {"value": "Rectum", "label": "Rectum (直肠)"},
+            {"value": "Retina", "label": "Retina (视网膜)"},
+            {"value": "Salivary gland", "label": "Salivary gland (唾液腺)"},
+            {"value": "Seminal vesicle", "label": "Seminal vesicle (精囊)"},
+            {"value": "Skeletal muscle", "label": "Skeletal muscle (骨骼肌)"},
+            {"value": "Skin", "label": "Skin (皮肤)"},
+            {"value": "Small intestine", "label": "Small intestine (小肠)"},
+            {"value": "Smooth muscle", "label": "Smooth muscle (平滑肌)"},
+            {"value": "Spinal cord", "label": "Spinal cord (脊髓)"},
+            {"value": "Spleen", "label": "Spleen (脾脏)"},
+            {"value": "Stomach", "label": "Stomach (胃)"},
+            {"value": "Testis", "label": "Testis (睾丸)"},
+            {"value": "Thymus", "label": "Thymus (胸腺)"},
+            {"value": "Thyroid gland", "label": "Thyroid gland (甲状腺)"},
+            {"value": "Tongue", "label": "Tongue (舌头)"},
+            {"value": "Tonsil", "label": "Tonsil (扁桃体)"},
+            {"value": "Urinary bladder", "label": "Urinary bladder (膀胱)"},
+            {"value": "Vagina", "label": "Vagina (阴道)"},
+        ]), '2', 0),
+        ('raw_DOI', 'DOI', 'text', 'raw', 0, 5, None, '2', 0),
+        ('raw_db_id', '数据库编号', 'text', 'raw', 0, 6, None, '2', 0),
+        ('raw_db_link', '数据库链接', 'text', 'raw', 0, 7, None, '2', 0),
+        ('raw_author', '作者', 'text', 'raw', 0, 8, None, '2', 0),
+        ('raw_article', '文章标题', 'text', 'raw', 0, 9, None, '2', 0),
+        ('raw_description', '描述', 'textarea', 'raw', 0, 10, None, '1', 0),
+        ('raw_keywords', '关键词', 'text', 'raw', 0, 11, None, '1', 0),
+        ('raw_file_count', '文件数量', 'text', 'raw', 0, 12, None, '2', 1),
+        ('raw_total_size', '文件总大小', 'text', 'raw', 0, 13, None, '2', 1),
     ]
     
-    for config in default_configs:
-        try:
-            existing = config_manager.get_config_by_field(config['field_name'])
+    # 结果数据字段配置
+    result_fields = [
+        ('results_id', '项目编号', 'text', 'result', 1, 0, None, '2', 0),
+        ('results_title', '项目名称', 'text', 'result', 1, 1, None, '2', 0),
+        ('results_type', '结果类型', 'select', 'result', 1, 2, json.dumps([
+            {"value": "DEA", "label": "差异分析 (DEA)"},
+            {"value": "Marker", "label": "Marker基因"},
+            {"value": "Enrichment", "label": "富集分析"},
+            {"value": "PPI", "label": "蛋白互作 (PPI)"},
+            {"value": "Network", "label": "网络分析"},
+            {"value": "Clustering", "label": "聚类分析"},
+            {"value": "Dimension", "label": "降维分析"},
+            {"value": "Trajectory", "label": "轨迹分析"},
+        ]), '2', 0),
+        ('results_raw', '关联原始项目', 'text', 'result', 0, 3, None, '2', 0),
+        ('results_description', '描述', 'textarea', 'result', 0, 4, None, '1', 0),
+        ('results_keywords', '关键词', 'text', 'result', 0, 5, None, '1', 0),
+        ('results_file_count', '文件数量', 'text', 'result', 0, 6, None, '2', 1),
+        ('results_total_size', '文件总大小', 'text', 'result', 0, 7, None, '2', 1),
+    ]
+    
+    # 文件管理字段配置
+    file_fields = [
+        ('file_name', '文件名', 'text', 'file', 1, 0, None, '2', 0),
+        ('file_path', '文件路径', 'text', 'file', 1, 1, None, '2', 0),
+        ('file_size', '文件大小', 'text', 'file', 0, 2, None, '2', 0),
+        ('file_type', '文件类型', 'text', 'file', 0, 3, None, '2', 0),
+        ('file_project_type', '项目类型', 'text', 'file', 1, 4, None, '2', 0),
+        ('file_project_id', '项目编号', 'text', 'file', 1, 5, None, '2', 0),
+        ('imported_at', '导入时间', 'text', 'file', 0, 6, None, '2', 0),
+    ]
+    
+    all_fields = raw_fields + result_fields + file_fields
+    
+    # 强制重建模式：先清空表
+    if force:
+        print("  清空 field_config 表...")
+        db.execute("TRUNCATE TABLE field_config")
+    
+    for field in all_fields:
+        field_id = field[0]
+        existing = db.query_one(
+            "SELECT id FROM field_config WHERE field_id = %s",
+            (field_id,)
+        )
+        if not existing:
+            db.execute(
+                """INSERT INTO field_config 
+                   (field_id, field_name, field_type, field_table, field_necessary, field_seq, field_options, field_placeholder, field_readonly) 
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                field
+            )
+            print(f"  添加字段: {field[1]} ({field_id})")
+
+
+def init_select_options(db, force=False):
+    """初始化 select_options 表
+    
+    Args:
+        db: 数据库连接
+        force: 是否强制重建模式
+    """
+    # 强制重建模式：先清空表
+    if force:
+        print("  清空 select_options 表...")
+        db.execute("TRUNCATE TABLE select_options")
+    
+    # 数据类型选项
+    raw_type_options = [
+        ('mRNAseq', '转录组', 1),
+        ('Long-Read RNAseq', '长读转录组', 2),
+        ('lncRNAseq', 'lncRNAseq', 3),
+        ('miRNAseq', 'miRNAseq', 4),
+        ('sRNAseq', '小RNA转录组', 5),
+        ('epitRNAseq', '表观转录组', 6),
+        ('scRNAseq', '单细胞转录组', 7),
+        ('LR-scRNAseq', '长读单细胞转录组', 8),
+        ('蛋白组', '蛋白组', 9),
+        ('磷酸化组', '磷酸化组', 10),
+        ('泛素化组', '泛素化组', 11),
+        ('乙酰化组', '乙酰化组', 12),
+        ('SUMO PTMome', 'SUMO PTMome', 13),
+        ('甲基化组', '甲基化组', 14),
+        ('糖基化组', '糖基化组', 15),
+        ('棕榈酰化组', '棕榈酰化组', 16),
+        ('代谢组', '代谢组', 17),
+        ('脂质组学', '脂质组学', 18),
+        ('免疫组学', '免疫组学', 19),
+        ('空间多组学', '空间多组学', 20),
+    ]
+    
+    # 物种选项
+    raw_species_options = [
+        ('raw_species', 'Homo sapiens', '人', 1),
+        ('raw_species', 'Mus musculus', '小鼠', 2),
+        ('raw_species', 'Rattus norvegicus', '大鼠', 3),
+        ('raw_species', 'Others', '其他', 4),
+    ]
+    
+    # 组织来源选项
+    raw_tissue_options = [
+        ('Not Specific', 'Not Specific (非单一组织)', 0),
+        ('Adipose tissue', 'Adipose tissue (脂肪组织)', 1),
+        ('Adrenal gland', 'Adrenal gland (肾上腺)', 2),
+        ('Amygdala', 'Amygdala (杏仁核)', 3),
+        ('Basal ganglia', 'Basal ganglia (基底神经节)', 4),
+        ('Blood vessel', 'Blood vessel (血管)', 5),
+        ('Bone marrow', 'Bone marrow (骨髓)', 6),
+        ('Breast', 'Breast (乳房)', 7),
+        ('Cerebellum', 'Cerebellum (小脑)', 8),
+        ('Cerebral cortex', 'Cerebral cortex (大脑皮层)', 9),
+        ('Cervix', 'Cervix (子宫颈)', 10),
+        ('Choroid plexus', 'Choroid plexus (脉络丛)', 11),
+        ('Colon', 'Colon (结肠)', 12),
+        ('Duodenum', 'Duodenum (十二指肠)', 13),
+        ('Endometrium', 'Endometrium (子宫内膜)', 14),
+        ('Epididymis', 'Epididymis (附睾)', 15),
+        ('Esophagus', 'Esophagus (食管)', 16),
+        ('Fallopian tube', 'Fallopian tube (输卵管)', 17),
+        ('Gallbladder', 'Gallbladder (胆囊)', 18),
+        ('Heart muscle', 'Heart muscle (心肌)', 19),
+        ('Hippocampal formation', 'Hippocampal formation (海马结构)', 20),
+        ('Hypothalamus', 'Hypothalamus (下丘脑)', 21),
+        ('Kidney', 'Kidney (肾脏)', 22),
+        ('Liver', 'Liver (肝脏)', 23),
+        ('Lung', 'Lung (肺)', 24),
+        ('Lymph node', 'Lymph node (淋巴结)', 25),
+        ('Midbrain', 'Midbrain (中脑)', 26),
+        ('Ovary', 'Ovary (卵巢)', 27),
+        ('Pancreas', 'Pancreas (胰腺)', 28),
+        ('Parathyroid gland', 'Parathyroid gland (甲状旁腺)', 29),
+        ('Pituitary gland', 'Pituitary gland (垂体)', 30),
+        ('Placenta', 'Placenta (胎盘)', 31),
+        ('Prostate', 'Prostate (前列腺)', 32),
+        ('Rectum', 'Rectum (直肠)', 33),
+        ('Retina', 'Retina (视网膜)', 34),
+        ('Salivary gland', 'Salivary gland (唾液腺)', 35),
+        ('Seminal vesicle', 'Seminal vesicle (精囊)', 36),
+        ('Skeletal muscle', 'Skeletal muscle (骨骼肌)', 37),
+        ('Skin', 'Skin (皮肤)', 38),
+        ('Small intestine', 'Small intestine (小肠)', 39),
+        ('Smooth muscle', 'Smooth muscle (平滑肌)', 40),
+        ('Spinal cord', 'Spinal cord (脊髓)', 41),
+        ('Spleen', 'Spleen (脾脏)', 42),
+        ('Stomach', 'Stomach (胃)', 43),
+        ('Testis', 'Testis (睾丸)', 44),
+        ('Thymus', 'Thymus (胸腺)', 45),
+        ('Thyroid gland', 'Thyroid gland (甲状腺)', 46),
+        ('Tongue', 'Tongue (舌头)', 47),
+        ('Tonsil', 'Tonsil (扁桃体)', 48),
+        ('Urinary bladder', 'Urinary bladder (膀胱)', 49),
+        ('Vagina', 'Vagina (阴道)', 50),
+    ]
+    
+    all_options = [
+        ('raw_type', raw_type_options),
+        ('raw_species', raw_species_options),
+        ('raw_tissue', raw_tissue_options),
+    ]
+    
+    for option_type, options in all_options:
+        for opt in options:
+            existing = db.query_one(
+                "SELECT id FROM select_options WHERE option_type = %s AND option_value = %s",
+                (option_type, opt[0])
+            )
             if not existing:
-                config_manager.add_config(config)
-                print(f"  添加字段: {config['label']} ({config['field_name']})")
+                db.execute(
+                    "INSERT INTO select_options (option_type, option_value, option_label, option_seq) VALUES (%s, %s, %s, %s)",
+                    (option_type,) + opt
+                )
+                print(f"  添加选项: {option_type} -> {opt[1]}")
             else:
-                print(f"  字段已存在: {config['label']} ({config['field_name']})")
-        except Exception as e:
-            print(f"  添加字段失败: {config['field_name']} - {e}")
+                print(f"  选项已存在: {option_type} -> {opt[1]}")
+
+
+def init_abbr_mapping(db, force=False):
+    """初始化 abbr_mapping 表
+    
+    Args:
+        db: 数据库连接
+        force: 是否强制重建模式
+    """
+    # 强制重建模式：先清空表
+    if force:
+        print("  清空 abbr_mapping 表...")
+        db.execute("TRUNCATE TABLE abbr_mapping")
+    
+    # 数据类型缩写
+    raw_type_abbrs = [
+        ('mRNAseq', 'mRseq'),
+        ('Long-Read RNAseq', 'LRseq'),
+        ('lncRNAseq', 'lncseq'),
+        ('miRNAseq', 'miseq'),
+        ('sRNAseq', 'srseq'),
+        ('epitRNAseq', 'epitseq'),
+        ('scRNAseq', 'scseq'),
+        ('LR-scRNAseq', 'LR_sc'),
+        ('蛋白组', 'pro'),
+        ('磷酸化组', 'pho'),
+        ('泛素化组', 'ubi'),
+        ('乙酰化组', 'acety'),
+        ('SUMO PTMome', 'sumo'),
+        ('甲基化组', 'meth'),
+        ('糖基化组', 'glyco'),
+        ('棕榈酰化组', 'pal'),
+        ('代谢组', 'metab'),
+        ('脂质组学', 'lipo'),
+        ('免疫组学', 'immuno'),
+        ('空间多组学', 'spatial'),
+    ]
+    
+    # 物种缩写
+    raw_species_abbrs = [
+        ('Homo sapiens', 'Hs'),
+        ('Mus musculus', 'Mu'),
+        ('Rattus norvegicus', 'Ra'),
+        ('Others', 'Ot'),
+    ]
+    
+    # 组织来源缩写
+    raw_tissue_abbrs = [
+        ('Not Specific', 'Ns'),
+        ('Adipose tissue', 'At'),
+        ('Adrenal gland', 'Ag'),
+        ('Amygdala', 'Am'),
+        ('Basal ganglia', 'Bg'),
+        ('Blood vessel', 'Bv'),
+        ('Bone marrow', 'Bm'),
+        ('Breast', 'Br'),
+        ('Cerebellum', 'Ce'),
+        ('Cerebral cortex', 'Cc'),
+        ('Cervix', 'Cer'),
+        ('Choroid plexus', 'Cp'),
+        ('Colon', 'Co'),
+        ('Duodenum', 'Du'),
+        ('Endometrium', 'En'),
+        ('Epididymis', 'Ep'),
+        ('Esophagus', 'Es'),
+        ('Fallopian tube', 'Fa'),
+        ('Gallbladder', 'Ga'),
+        ('Heart muscle', 'Hm'),
+        ('Hippocampal formation', 'Hf'),
+        ('Hypothalamus', 'Hy'),
+        ('Kidney', 'Ki'),
+        ('Liver', 'Li'),
+        ('Lung', 'Lu'),
+        ('Lymph node', 'Ln'),
+        ('Midbrain', 'Mi'),
+        ('Ovary', 'Ov'),
+        ('Pancreas', 'Pa'),
+        ('Parathyroid gland', 'Pg'),
+        ('Pituitary gland', 'Pig'),
+        ('Placenta', 'Pl'),
+        ('Prostate', 'Pr'),
+        ('Rectum', 'Re'),
+        ('Retina', 'Ret'),
+        ('Salivary gland', 'Sg'),
+        ('Seminal vesicle', 'Sv'),
+        ('Skeletal muscle', 'Sm'),
+        ('Skin', 'Sk'),
+        ('Small intestine', 'Si'),
+        ('Smooth muscle', 'Sm'),
+        ('Spinal cord', 'Sc'),
+        ('Spleen', 'Sp'),
+        ('Stomach', 'St'),
+        ('Testis', 'Te'),
+        ('Thymus', 'Th'),
+        ('Thyroid gland', 'Tg'),
+        ('Tongue', 'To'),
+        ('Tonsil', 'Ton'),
+        ('Urinary bladder', 'Ub'),
+        ('Vagina', 'Va'),
+    ]
+    
+    all_abbrs = [
+        ('raw_type', raw_type_abbrs),
+        ('raw_species', raw_species_abbrs),
+        ('raw_tissue', raw_tissue_abbrs),
+    ]
+    
+    for field_id, abbrs in all_abbrs:
+        for abbr in abbrs:
+            existing = db.query_one(
+                "SELECT id FROM abbr_mapping WHERE field_id = %s AND full_name = %s",
+                (field_id, abbr[0])
+            )
+            if not existing:
+                db.execute(
+                    "INSERT INTO abbr_mapping (field_id, full_name, abbr_name) VALUES (%s, %s, %s)",
+                    (field_id,) + abbr
+                )
+                print(f"  添加缩写: {field_id} -> {abbr[0]} ({abbr[1]})")
+            else:
+                print(f"  缩写已存在: {field_id} -> {abbr[0]}")
 
 
 if __name__ == '__main__':
-    success = init_database()
+    args = parse_args()
+    success = init_database(force=args.force)
     sys.exit(0 if success else 1)

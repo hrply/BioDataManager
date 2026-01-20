@@ -212,6 +212,28 @@
             contentType: 'application/json'
         });
 
+        // 请求防抖 - 防止过度点击
+        const requestDebounce = {
+            pending: new Map(),
+            
+            debounce: function(key, fn, delay = 300) {
+                const now = Date.now();
+                const last = this.pending.get(key);
+                
+                if (last && (now - last.time < delay)) {
+                    // 距离上次请求太近，返回已解析的 Promise
+                    return $.Deferred().resolve({ success: true, debounced: true }).promise();
+                }
+                
+                this.pending.set(key, { time: now });
+                
+                // 3秒后清理记录
+                setTimeout(() => this.pending.delete(key), 3000);
+                
+                return fn();
+            }
+        };
+
         // Loading 计数器 - 支持并发请求
         let loadingCount = 0;
         
@@ -230,17 +252,52 @@
             }
         }
 
-        // API 调用封装
+        // API 调用封装 - 带防抖
         function apiGet(url, params = {}) {
-            showLoading();
-            return $.get(url, params)
-                .always(hideLoading);
+            const key = `GET:${url}`;
+            return requestDebounce.debounce(key, function() {
+                showLoading();
+                return $.get(url, params)
+                    .done(hideLoading)
+                    .fail(function() { hideLoading(); });
+            }, 200);
         }
 
         function apiPost(url, data = {}) {
-            showLoading();
-            return $.post(url, JSON.stringify(data))
-                .always(hideLoading);
+            const key = `POST:${url}`;
+            return requestDebounce.debounce(key, function() {
+                showLoading();
+                return $.ajax({
+                    url: url,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(data)
+                }).done(hideLoading);
+            }, 500);
+        }
+
+        function apiPut(url, data = {}) {
+            const key = `PUT:${url}`;
+            return requestDebounce.debounce(key, function() {
+                showLoading();
+                return $.ajax({
+                    url: url,
+                    type: 'PUT',
+                    contentType: 'application/json',
+                    data: JSON.stringify(data)
+                }).done(hideLoading);
+            }, 500);
+        }
+
+        function apiDelete(url) {
+            const key = `DELETE:${url}`;
+            return requestDebounce.debounce(key, function() {
+                showLoading();
+                return $.ajax({
+                    url: url,
+                    type: 'DELETE'
+                }).done(hideLoading);
+            }, 500);
         }
 
         // Toast 通知

@@ -7,6 +7,7 @@ BioData Manager - MySQL元数据配置管理模块
 """
 
 from typing import Dict, List, Optional, Tuple
+import json
 from database_mysql import DatabaseManager
 
 
@@ -28,36 +29,42 @@ class MetadataConfigManager:
         
         try:
             results = self.db_manager.query("""
-                SELECT id, field_name, label, field_type, options, required, sort_order, field_table, data_type, created_at, updated_at
-                FROM metadata_config
-                ORDER BY sort_order ASC, id ASC
+                SELECT id, field_id, field_name, field_type, field_table, 
+                       field_necessary, field_options, field_seq, field_default, field_placeholder,
+                       field_readonly, created_at, updated_at
+                FROM field_config
+                ORDER BY field_table ASC, field_seq ASC, id ASC
             """)
             
             configs = []
             for row in results:
                 config = {
                     'id': row[0],
-                    'field_name': row[1],
-                    'label': row[2],
+                    'field_id': row[1],
+                    'field_name': row[2],
                     'field_type': row[3],
-                    'options': row[4],
-                    'required': bool(row[5]),
-                    'sort_order': row[6],
-                    'field_table': row[7],
-                    'data_type': row[8],
-                    'created_at': str(row[9]) if row[9] else None,
-                    'updated_at': str(row[10]) if row[10] else None
+                    'field_table': row[4],
+                    'field_necessary': bool(row[5]),
+                    'field_options': row[6],
+                    'field_seq': row[7],
+                    'field_default': row[8],
+                    'field_placeholder': row[9],
+                    'field_readonly': bool(row[10]) if row[10] is not None else False,
+                    'created_at': str(row[11]) if row[11] else None,
+                    'updated_at': str(row[12]) if row[12] else None
                 }
                 
-                # 解析options JSON
-                if config['options']:
-                    import json
+                # 解析 field_options JSON
+                if config['field_options']:
                     try:
-                        config['options'] = json.loads(config['options'])
+                        config['field_options'] = json.loads(config['field_options'])
                     except (json.JSONDecodeError, TypeError):
-                        config['options'] = []
+                        config['field_options'] = []
                 else:
-                    config['options'] = []
+                    config['field_options'] = []
+                
+                # 添加 options_count 字段
+                config['options_count'] = len(config['field_options'])
                 
                 configs.append(config)
             
@@ -66,78 +73,91 @@ class MetadataConfigManager:
             print(f"获取元数据配置失败: {e}")
             return []
     
-    def get_config_by_field(self, field_name: str) -> Optional[Dict]:
-        """根据字段名获取配置"""
+    def get_config_by_field_id(self, field_id: str) -> Optional[Dict]:
+        """根据字段标识符获取配置"""
         if not self.db_manager:
             return None
         
         try:
             row = self.db_manager.query_one("""
-                SELECT id, field_name, label, field_type, options, required, sort_order, field_table, data_type
-                FROM metadata_config WHERE field_name = %s
-            """, (field_name,))
+                SELECT id, field_id, field_name, field_type, field_table, 
+                       field_necessary, field_options, field_seq, field_default, field_placeholder,
+                       field_readonly
+                FROM field_config WHERE field_id = %s
+            """, (field_id,))
             
             if row:
-                return {
+                config = {
                     'id': row[0],
-                    'field_name': row[1],
-                    'label': row[2],
+                    'field_id': row[1],
+                    'field_name': row[2],
                     'field_type': row[3],
-                    'options': row[4],
-                    'required': bool(row[5]),
-                    'sort_order': row[6],
-                    'field_table': row[7],
-                    'data_type': row[8]
+                    'field_table': row[4],
+                    'field_necessary': bool(row[5]),
+                    'field_options': row[6],
+                    'field_seq': row[7],
+                    'field_default': row[8],
+                    'field_placeholder': row[9],
+                    'field_readonly': bool(row[10]) if row[10] is not None else False
                 }
+                
+                # 解析 field_options JSON
+                if config['field_options']:
+                    try:
+                        config['field_options'] = json.loads(config['field_options'])
+                    except (json.JSONDecodeError, TypeError):
+                        config['field_options'] = []
+                else:
+                    config['field_options'] = []
+                
+                return config
             return None
         except Exception as e:
             print(f"获取字段配置失败: {e}")
             return None
     
-    def get_configs_by_table(self, field_table: str, data_type: str = None) -> List[Dict]:
+    def get_configs_by_table(self, field_table: str) -> List[Dict]:
         """根据表类型获取配置"""
         if not self.db_manager:
             return []
         
         try:
-            if data_type:
-                results = self.db_manager.query("""
-                    SELECT id, field_name, label, field_type, options, required, sort_order, field_table, data_type
-                    FROM metadata_config
-                    WHERE field_table = %s AND (data_type = %s OR data_type IS NULL OR data_type = '')
-                    ORDER BY sort_order ASC, id ASC
-                """, (field_table, data_type))
-            else:
-                results = self.db_manager.query("""
-                    SELECT id, field_name, label, field_type, options, required, sort_order, field_table, data_type
-                    FROM metadata_config
-                    WHERE field_table = %s
-                    ORDER BY sort_order ASC, id ASC
-                """, (field_table,))
+            results = self.db_manager.query("""
+                SELECT id, field_id, field_name, field_type, field_table, 
+                       field_necessary, field_options, field_seq, field_default, field_placeholder,
+                       field_readonly
+                FROM field_config
+                WHERE field_table = %s
+                ORDER BY field_seq ASC, id ASC
+            """, (field_table,))
             
             configs = []
             for row in results:
                 config = {
                     'id': row[0],
-                    'field_name': row[1],
-                    'label': row[2],
+                    'field_id': row[1],
+                    'field_name': row[2],
                     'field_type': row[3],
-                    'options': row[4],
-                    'required': bool(row[5]),
-                    'sort_order': row[6],
-                    'field_table': row[7],
-                    'data_type': row[8]
+                    'field_table': row[4],
+                    'field_necessary': bool(row[5]),
+                    'field_options': row[6],
+                    'field_seq': row[7],
+                    'field_default': row[8],
+                    'field_placeholder': row[9],
+                    'field_readonly': bool(row[10]) if row[10] is not None else False
                 }
                 
-                # 解析options JSON
-                if config['options']:
-                    import json
+                # 解析 field_options JSON
+                if config['field_options']:
                     try:
-                        config['options'] = json.loads(config['options'])
+                        config['field_options'] = json.loads(config['field_options'])
                     except (json.JSONDecodeError, TypeError):
-                        config['options'] = []
+                        config['field_options'] = []
                 else:
-                    config['options'] = []
+                    config['field_options'] = []
+                
+                # 添加 options_count 字段
+                config['options_count'] = len(config['field_options'])
                 
                 configs.append(config)
             
@@ -153,20 +173,37 @@ class MetadataConfigManager:
         
         try:
             row = self.db_manager.query_one("""
-                SELECT id, field_name, label, field_type, options, required, sort_order
-                FROM metadata_config WHERE id = %s
+                SELECT id, field_id, field_name, field_type, field_table, 
+                       field_necessary, field_options, field_seq, field_default, field_placeholder,
+                       field_readonly
+                FROM field_config WHERE id = %s
             """, (config_id,))
             
             if row:
-                return {
+                config = {
                     'id': row[0],
-                    'field_name': row[1],
-                    'label': row[2],
+                    'field_id': row[1],
+                    'field_name': row[2],
                     'field_type': row[3],
-                    'options': row[4],
-                    'required': bool(row[5]),
-                    'sort_order': row[6]
+                    'field_table': row[4],
+                    'field_necessary': bool(row[5]),
+                    'field_options': row[6],
+                    'field_seq': row[7],
+                    'field_default': row[8],
+                    'field_placeholder': row[9],
+                    'field_readonly': bool(row[10]) if row[10] is not None else False
                 }
+                
+                # 解析 field_options JSON
+                if config['field_options']:
+                    try:
+                        config['field_options'] = json.loads(config['field_options'])
+                    except (json.JSONDecodeError, TypeError):
+                        config['field_options'] = []
+                else:
+                    config['field_options'] = []
+                
+                return config
             return None
         except Exception as e:
             print(f"获取配置失败: {e}")
@@ -178,22 +215,27 @@ class MetadataConfigManager:
             return {'success': False, 'message': '数据库未连接'}
         
         try:
-            # 处理options
-            options = data.get('options', [])
-            if isinstance(options, list):
-                import json
-                options = json.dumps(options, ensure_ascii=False)
+            # 处理 field_options
+            field_options = data.get('field_options', [])
+            if isinstance(field_options, list):
+                field_options = json.dumps(field_options, ensure_ascii=False)
             
             self.db_manager.execute("""
-                INSERT INTO metadata_config (field_name, label, field_type, options, required, sort_order)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO field_config 
+                (field_id, field_name, field_type, field_table, field_necessary, 
+                 field_options, field_seq, field_default, field_placeholder, field_readonly)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
+                data.get('field_id', ''),
                 data.get('field_name', ''),
-                data.get('label', ''),
                 data.get('field_type', 'text'),
-                options,
-                data.get('required', False),
-                data.get('sort_order', 0)
+                data.get('field_table', 'raw'),
+                data.get('field_necessary', False),
+                field_options,
+                data.get('field_seq', 0),
+                data.get('field_default'),
+                data.get('field_placeholder'),
+                data.get('field_readonly', False)
             ))
             
             # 获取插入的ID
@@ -201,12 +243,16 @@ class MetadataConfigManager:
             
             return {
                 'id': config_id,
+                'field_id': data.get('field_id', ''),
                 'field_name': data.get('field_name', ''),
-                'label': data.get('label', ''),
                 'field_type': data.get('field_type', 'text'),
-                'options': data.get('options', []),
-                'required': data.get('required', False),
-                'sort_order': data.get('sort_order', 0)
+                'field_table': data.get('field_table', 'raw'),
+                'field_necessary': data.get('field_necessary', False),
+                'field_options': data.get('field_options', []),
+                'field_seq': data.get('field_seq', 0),
+                'field_default': data.get('field_default'),
+                'field_placeholder': data.get('field_placeholder'),
+                'field_readonly': data.get('field_readonly', False)
             }
         except Exception as e:
             print(f"添加配置失败: {e}")
@@ -222,24 +268,33 @@ class MetadataConfigManager:
             return False
         
         try:
-            # 处理options
-            options = data.get('options', [])
-            if isinstance(options, list):
-                import json
-                options = json.dumps(options, ensure_ascii=False)
+            # 获取原始配置，保留 field_table 不变
+            original_config = self.get_config_by_id(config_id)
+            if not original_config:
+                return False
             
+            # 处理 field_options
+            field_options = data.get('field_options', [])
+            if isinstance(field_options, list):
+                field_options = json.dumps(field_options, ensure_ascii=False)
+            
+            # field_table 不应该被前端传入的值修改，使用数据库中的原始值
             self.db_manager.execute("""
-                UPDATE metadata_config 
-                SET field_name = %s, label = %s, field_type = %s, 
-                    options = %s, required = %s, sort_order = %s
+                UPDATE field_config 
+                SET field_name = %s, field_type = %s, 
+                    field_necessary = %s, field_options = %s,
+                    field_seq = %s, field_default = %s, field_placeholder = %s,
+                    field_readonly = %s
                 WHERE id = %s
             """, (
                 data.get('field_name', ''),
-                data.get('label', ''),
                 data.get('field_type', 'text'),
-                options,
-                data.get('required', False),
-                data.get('sort_order', 0),
+                data.get('field_necessary', False),
+                field_options,
+                data.get('field_seq', 0),
+                data.get('field_default'),
+                data.get('field_placeholder'),
+                data.get('field_readonly', False),
                 config_id
             ))
             
@@ -255,7 +310,7 @@ class MetadataConfigManager:
         
         try:
             self.db_manager.execute(
-                "DELETE FROM metadata_config WHERE id = %s",
+                "DELETE FROM field_config WHERE id = %s",
                 (config_id,)
             )
             return True
@@ -271,55 +326,142 @@ class MetadataConfigManager:
         try:
             for config in configs:
                 self.db_manager.execute(
-                    "UPDATE metadata_config SET sort_order = %s WHERE id = %s",
-                    (config.get('sort_order', 0), config.get('id'))
+                    "UPDATE field_config SET field_seq = %s WHERE id = %s",
+                    (config.get('field_seq', 0), config.get('id'))
                 )
             return True
         except Exception as e:
             print(f"保存排序失败: {e}")
             return False
     
-    def get_field_options(self, field_name: str) -> List[Dict]:
+    def get_field_options(self, field_id: str) -> List[Dict]:
         """获取字段选项"""
-        config = self.get_config_by_field(field_name)
-        if config and config['options']:
-            return config['options']
+        config = self.get_config_by_field_id(field_id)
+        if config and config['field_options']:
+            return config['field_options']
         return []
     
     def get_required_fields(self) -> List[str]:
-        """获取必填字段列表"""
+        """获取必填字段标识符列表"""
         configs = self.get_all_configs()
-        return [c['field_name'] for c in configs if c['required']]
+        return [c['field_id'] for c in configs if c['field_necessary']]
     
-    def validate_data(self, data: Dict) -> Tuple[bool, List[str]]:
+    def get_select_options(self, option_type: str) -> List[Dict]:
+        """获取下拉选项"""
+        if not self.db_manager:
+            return []
+        
+        try:
+            results = self.db_manager.query("""
+                SELECT option_value, option_label, option_seq
+                FROM select_options
+                WHERE option_type = %s
+                ORDER BY option_seq ASC
+            """, (option_type,))
+            
+            return [
+                {'value': row[0], 'label': row[1], 'seq': row[2]}
+                for row in results
+            ]
+        except Exception as e:
+            print(f"获取选项失败: {e}")
+            return []
+    
+    def get_abbr_mapping(self, field_id: str, full_name: str) -> Optional[str]:
+        """获取缩写"""
+        if not self.db_manager:
+            return None
+        
+        try:
+            row = self.db_manager.query_one(
+                "SELECT abbr_name FROM abbr_mapping WHERE field_id = %s AND full_name = %s",
+                (field_id, full_name)
+            )
+            return row[0] if row else None
+        except Exception as e:
+            print(f"获取缩写失败: {e}")
+            return None
+    
+    def validate_data(self, data: Dict, field_table: str) -> Tuple[bool, List[str]]:
         """验证数据"""
         errors = []
-        configs = self.get_all_configs()
+        configs = self.get_configs_by_table(field_table)
         
         for config in configs:
-            field_name = config['field_name']
-            required = config['required']
-            value = data.get(field_name, '')
+            field_id = config['field_id']
+            field_necessary = config['field_necessary']
+            field_type = config['field_type']
+            value = data.get(field_id, '')
             
             # 检查必填
-            if required and not value:
-                errors.append(f"{config['label']} 为必填字段")
+            if field_necessary and not value:
+                errors.append(f"{config['field_name']} 为必填字段")
                 continue
             
-            # 检查选项有效性（如果有options）
-            if config['options'] and value:
-                options = config['options']
-                option_values = [opt.get('value', opt) for opt in options]
+            # 对于 select/multi_select 类型，验证选项有效性
+            if field_type in ('select', 'multi_select') and value:
+                options = self.get_select_options(field_id)
+                option_values = [opt['value'] for opt in options]
                 
-                if isinstance(value, list):
-                    for v in value:
-                        if v not in option_values:
-                            errors.append(f"{config['label']} 包含无效选项: {v}")
+                if field_type == 'multi_select' and isinstance(value, str):
+                    # 多选用逗号分隔
+                    values = [v.strip() for v in value.split(',') if v.strip()]
+                elif field_type == 'multi_select' and isinstance(value, list):
+                    values = value
                 else:
-                    if value not in option_values:
-                        errors.append(f"{config['label']} 包含无效选项: {value}")
+                    values = [value]
+                
+                for v in values:
+                    if v not in option_values:
+                        errors.append(f"{config['field_name']} 包含无效选项: {v}")
         
         return len(errors) == 0, errors
+    
+    def get_field_config_columns(self) -> List[Dict]:
+        """获取 field_config 表的列信息（用于前端动态生成列标题）
+        
+        返回第 2-8 列的列名和 comment，用于元数据配置页面的表格列标题
+        列顺序: id, field_seq, field_id, field_name, field_type, 
+                field_necessary, field_placeholder, field_readonly, field_table
+        """
+        if not self.db_manager:
+            return []
+        
+        try:
+            results = self.db_manager.query("""
+                SELECT 
+                    ORDINAL_POSITION as col_order,
+                    COLUMN_NAME as col_name,
+                    COLUMN_COMMENT as col_comment,
+                    DATA_TYPE as data_type,
+                    IS_NULLABLE as is_nullable,
+                    COLUMN_DEFAULT as col_default
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() 
+                  AND TABLE_NAME = 'field_config'
+                ORDER BY ORDINAL_POSITION ASC
+            """)
+            
+            # 只返回第 2-8 列（field_seq 到 field_readonly）
+            # 索引: 0=id, 1=field_seq, 2=field_id, 3=field_name, 4=field_type,
+            #       5=field_necessary, 6=field_placeholder, 7=field_readonly, 8=field_table
+            columns = []
+            for row in results:
+                col_order = row[0]
+                if 2 <= col_order <= 8:  # 第 2-8 列
+                    columns.append({
+                        'order': col_order,
+                        'name': row[1],
+                        'comment': row[2],
+                        'type': row[3],
+                        'nullable': row[4] == 'YES',
+                        'default': row[5]
+                    })
+            
+            return columns
+        except Exception as e:
+            print(f"获取列信息失败: {e}")
+            return []
 
 
 if __name__ == '__main__':
@@ -333,7 +475,7 @@ if __name__ == '__main__':
         configs = manager.get_all_configs()
         print(f"共有 {len(configs)} 个字段配置:")
         for config in configs:
-            print(f"  - {config['label']} ({config['field_name']}): {config['field_type']}")
+            print(f"  - {config['field_name']} ({config['field_id']}): {config['field_type']} [{config['field_table']}]")
         
         db.disconnect()
     else:

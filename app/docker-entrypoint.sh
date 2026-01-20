@@ -34,14 +34,22 @@ wait_for_mysql() {
 
 # 初始化数据库
 init_database() {
-    echo "检查并初始化数据库..."
+    local force_flag="$1"
+    echo "开始初始化数据库..."
     
-    python3 /app/init_db.py
+    if [ "$force_flag" = "true" ]; then
+        echo "⚠️  强制重建模式"
+        python3 /app/init_db.py --force
+    else
+        echo "📝 追加模式"
+        python3 /app/init_db.py
+    fi
     
     if [ $? -eq 0 ]; then
         echo "数据库初始化完成"
     else
         echo "警告: 数据库初始化出现问题"
+        return 1
     fi
 }
 
@@ -50,8 +58,9 @@ main() {
     # 等待MySQL
     wait_for_mysql
     
-    # 初始化数据库
-    init_database
+    # 检查初始化模式
+    local init_flag="${INIT_DATABASE:-false}"
+    init_database "$init_flag"
     
     # 启动应用
     echo "启动 BioData Manager..."
