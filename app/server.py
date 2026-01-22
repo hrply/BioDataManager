@@ -569,6 +569,10 @@ def api_import_download():
             project_id = project.get('raw_id') or project.get('results_id') or project.get('id')
             if not project_id:
                 return jsonify({'success': False, 'message': '创建项目成功但无法获取项目ID'})
+            
+            # 新建项目时，使用 project_info 作为 metadata_override 用于构建路径
+            # 但由于值已在 create_raw_project/create_result_project 中设置，这里需要清除以避免重复追加
+            metadata_override = {}
         
         if not project_id or not files:
             return jsonify({'success': False, 'message': '缺少参数'})

@@ -971,10 +971,10 @@ class BioDataManager:
                 if value:
                     self.append_field_value('raw_project', project_id, field_id, value)
         
-        # 只使用前端传入的值构建路径
-        raw_type = metadata_override.get('raw_type', '') if metadata_override else ''
-        raw_species = metadata_override.get('raw_species', '') if metadata_override else ''
-        raw_tissue = metadata_override.get('raw_tissue', '') if metadata_override else ''
+        # 构建路径：优先使用 metadata_override 的值，否则使用已有项目的值
+        raw_type = metadata_override.get('raw_type', '') if metadata_override else project.get('raw_type', '')
+        raw_species = metadata_override.get('raw_species', '') if metadata_override else project.get('raw_species', '')
+        raw_tissue = metadata_override.get('raw_tissue', '') if metadata_override else project.get('raw_tissue', '')
         
         # 路径格式: {rawdata_dir}/{项目ID}/{raw_type}/{raw_species}/{raw_tissue}/
         project_path = self._build_raw_project_path(raw_type, raw_species, raw_tissue, project_id)
@@ -1028,13 +1028,17 @@ class BioDataManager:
                     print(f"[DEBUG] append_field_value: {field_id} = {value}")
                     self.append_field_value('result_project', project_id, field_id, value)
         
-        # 只使用前端传入的值构建路径
-        results_type = metadata_override.get('results_type', '') if metadata_override else ''
-        raw_project_ids = ''
+        # 构建路径：优先使用 metadata_override 的值，否则使用已有项目的值
+        results_type = metadata_override.get('results_type', '') if metadata_override else project.get('results_type', '')
         
+        # 获取关联项目ID：优先使用 metadata_override，否则使用已有项目的值
+        raw_project_ids = ''
         if metadata_override and metadata_override.get('results_raw'):
             raw_project_ids = self._parse_and_sort_project_ids(metadata_override['results_raw'])
-            print(f"[DEBUG] path will use raw_project_ids: {raw_project_ids}")
+            print(f"[DEBUG] path will use raw_project_ids from metadata_override: {raw_project_ids}")
+        elif project.get('results_raw'):
+            raw_project_ids = self._parse_and_sort_project_ids(project['results_raw'])
+            print(f"[DEBUG] path will use raw_project_ids from project: {raw_project_ids}")
         
         # 获取结果类型的缩写
         results_type_abbr = self.get_abbr('results_type', results_type) if results_type else ''
