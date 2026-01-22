@@ -94,7 +94,7 @@ class BioDataManager:
     def get_abbr(self, field_id: str, full_name: str) -> str:
         """获取缩写
         
-        优先从缩写映射表获取，如果没有则取全称的前3个大写字母
+        优先从缩写映射表获取，如果没有则取全称的前3个字符
         如果全称少于3个字符，则用下划线填充到3位
         """
         if not full_name:
@@ -109,10 +109,15 @@ class BioDataManager:
             # 如果表不存在或查询失败，使用默认逻辑
             pass
         
-        # 默认：取前3个大写字母，不足3位用下划线填充
-        abbr = ''.join(c for c in full_name.upper() if c.isalnum())[:3]
+        # 默认：取前3个字符（保留英文和数字）
+        abbr = ''.join(c for c in full_name[:3] if c.isalnum())
         if len(abbr) < 3:
             abbr = abbr.ljust(3, '_')
+        # 如果还是空（纯中文），取前3个字符
+        if not abbr:
+            abbr = full_name[:3]
+            if len(abbr) < 3:
+                abbr = abbr.ljust(3, '_')
         return abbr
     
     def _get_file_type(self, filename: str) -> str:
@@ -186,7 +191,7 @@ class BioDataManager:
             data.get('raw_author', ''),
             data.get('raw_article', ''),
             data.get('raw_description', ''),
-            data.get('raw_keywords', '')
+            (data.get('raw_keywords', '') or '').replace('，', ','),
         ))
         
         return self.get_raw_project_by_id(raw_id)
@@ -297,7 +302,7 @@ class BioDataManager:
             data.get('raw_author', ''),
             data.get('raw_article', ''),
             data.get('raw_description', ''),
-            data.get('raw_keywords', ''),
+            (data.get('raw_keywords', '') or '').replace('，', ','),
             raw_id
         ))
         
@@ -332,24 +337,22 @@ class BioDataManager:
     
     # ==================== 结果数据项目管理 ====================
     
-    def _build_result_project_path(self, results_type: str, raw_type: str, species: str, tissue: str, raw_project_id: str, results_id: str) -> Path:
+    def _build_result_project_path(self, results_type: str, raw_type: str, species: str, 
+                                    tissue: str, raw_project_id: str, results_id: str) -> Path:
         """构建结果数据项目路径
         
-        路径格式: {results_dir}/{结果类型}/{数据类型}-{物种}[-{组织}]/{原始项目ID}/{结果项目ID}/
+        路径格式: {results_dir}/{结果项目ID}/{分析类型}/{关联原始项目ID}/
+        示例: /bio/results/RES_ABC123/DEA/RAW_XYZ789/
+        
         """
-        results_type_abbr = self.get_abbr('results_type', results_type) if results_type else 'UNK'
-        raw_type_abbr = self.get_abbr('raw_type', raw_type) if raw_type else 'UNK'
-        species_abbr = self.get_abbr('raw_species', species) if species else 'UNK'
-        tissue_abbr = self.get_abbr('raw_tissue', tissue) if tissue else ''
+        results_type_abbr = self.get_abbr('results_type', results_type) if results_type else ''
         
-        # 构建原始项目路径部分
-        if tissue_abbr:
-            raw_path = f"{raw_type_abbr}-{species_abbr}-{tissue_abbr}-{raw_project_id}"
+        # 构建完整路径: {results_dir}/{项目ID}/{分析类型}/{关联项目ID}/
+        if raw_project_id:
+            project_path = self.results_dir / results_id / results_type_abbr / raw_project_id
         else:
-            raw_path = f"{raw_type_abbr}-{species_abbr}-{raw_project_id}"
+            project_path = self.results_dir / results_id / results_type_abbr
         
-        # 构建完整路径
-        project_path = self.results_dir / results_type_abbr / raw_path / results_id
         project_path.mkdir(parents=True, exist_ok=True)
         return project_path
     
@@ -360,20 +363,12 @@ class BioDataManager:
         results_type = data.get('results_type', '')
         raw_project_id = data.get('results_raw', '')
         
-        # 获取关联的原始项目信息
-        raw_type = ''
-        species = ''
-        tissue = ''
-        if raw_project_id:
-            raw = self.get_raw_project_by_id(raw_project_id)
-            if raw:
-                raw_type = raw.get('raw_type', '')
-                species = raw.get('raw_species', '')
-                tissue = raw.get('raw_tissue', '')
+        # 解析和排序关联项目编号（用于路径）
+        sorted_raw_ids = self._parse_and_sort_project_ids(raw_project_id) if raw_project_id else ''
         
-        # 构建项目路径
+        # 构建项目路径（新结构）
         project_path = self._build_result_project_path(
-            results_type, raw_type, species, tissue, raw_project_id, results_id
+            results_type, '', '', '', sorted_raw_ids, results_id
         )
         
         self.db_manager.execute("""
@@ -384,9 +379,9 @@ class BioDataManager:
             results_id,
             data.get('results_title', ''),
             results_type,
-            raw_project_id,
+            raw_project_id,  # 存储原始值（逗号分隔）
             data.get('results_description', ''),
-            data.get('results_keywords', '')
+            (data.get('keywords', '') or data.get('results_keywords', '') or '').replace('，', ','),
         ))
         
         return self.get_result_project_by_id(results_id)
@@ -473,7 +468,7 @@ class BioDataManager:
             data.get('results_type', ''),
             data.get('results_raw', ''),
             data.get('results_description', ''),
-            data.get('results_keywords', ''),
+            (data.get('results_keywords', '') or '').replace('，', ','),
             results_id
         ))
         
@@ -491,24 +486,18 @@ class BioDataManager:
             # 删除项目记录
             self.db_manager.execute("DELETE FROM result_project WHERE results_id = %s", (results_id,))
             
-            # 获取关联的原始项目信息用于构建路径
+            # 获取项目信息用于构建路径
+            results_type = project.get('results_type', '')
             raw_project_id = project.get('results_raw', '')
-            raw_type = ''
-            species = ''
-            tissue = ''
+            results_type_abbr = self.get_abbr('results_type', results_type) if results_type else ''
+            
+            # 构建路径（新结构）
             if raw_project_id:
-                raw = self.get_raw_project_by_id(raw_project_id)
-                if raw:
-                    raw_type = raw.get('raw_type', '')
-                    species = raw.get('raw_species', '')
-                    tissue = raw.get('raw_tissue', '')
+                project_path = self.results_dir / results_id / results_type_abbr / raw_project_id
+            else:
+                project_path = self.results_dir / results_id / results_type_abbr
             
             # 删除项目目录
-            project_path = self._build_result_project_path(
-                project.get('results_type', ''),
-                raw_type, species, tissue,
-                raw_project_id, results_id
-            )
             if project_path.exists():
                 shutil.rmtree(project_path)
             
@@ -541,24 +530,64 @@ class BioDataManager:
             })
         return result
     
-    def add_file_record(self, project_type: str, project_id: str, file_path: Path) -> bool:
-        """添加文件记录"""
+    def add_file_record(self, project_type: str, project_id: str, file_path: Path, metadata: Dict = None) -> bool:
+        """添加文件记录
+        
+        Args:
+            project_type: 'raw' 或 'result'
+            project_id: 项目编号
+            file_path: 文件的完整路径
+            metadata: 可选的元数据字典（如果已传入则使用，否则从数据库查询）
+        """
         try:
-            # 获取相对于 /bio 的路径
+            # file_name: 只包含文件名（不含路径）
+            file_name = file_path.name
+            
+            # file_path: 相对于 /bio 的路径（不包含文件名）
             try:
-                relative_path = str(file_path.relative_to(Path('/bio')))
+                dir_path = file_path.parent.relative_to(Path('/bio'))
             except ValueError:
-                relative_path = str(file_path)
+                dir_path = file_path.parent
+            
+            # 生成 file_property
+            project_metadata = metadata.copy() if metadata else {}
+            
+            # 如果没有传入 metadata，从数据库查询
+            if not metadata:
+                if project_type == 'raw':
+                    row = self.db_manager.query_one(
+                        "SELECT raw_type, raw_species, raw_tissue FROM raw_project WHERE raw_id = %s",
+                        (project_id,)
+                    )
+                    if row:
+                        project_metadata = {
+                            'raw_type': row[0] or '',
+                            'raw_species': row[1] or '',
+                            'raw_tissue': row[2] or ''
+                        }
+                else:
+                    row = self.db_manager.query_one(
+                        "SELECT results_type, results_raw FROM result_project WHERE results_id = %s",
+                        (project_id,)
+                    )
+                    if row:
+                        project_metadata = {
+                            'results_type': row[0] or '',
+                            'results_raw': row[1] or ''
+                        }
+            
+            file_property = self._build_file_property(project_type, project_id, project_metadata)
             
             self.db_manager.execute("""
                 INSERT INTO file_record 
-                (file_name, file_path, file_size, file_type, file_project_type, file_project_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                (file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
-                file_path.name,
-                relative_path,
+                file_name,
+                str(dir_path),
+                file_property,
                 file_path.stat().st_size,
-                self._get_file_type(file_path.name),
+                self._get_file_type(file_name),
                 project_type,
                 project_id
             ))
@@ -670,7 +699,108 @@ class BioDataManager:
         """删除生物结果项目（兼容旧API）"""
         return self.delete_result_project(project_id)
     
-    # ==================== 字段值追加 ====================
+    # ==================== 字段值处理辅助函数 ====================
+    
+    def _parse_and_sort_project_ids(self, raw_ids: str) -> str:
+        """解析逗号分隔的项目ID，按字母排序后组合
+        
+        支持中英文逗号分隔
+        示例: "RAW_A1，RAW_2A, RAW_sa" → 排序后: "RAW_2ARAW_A1RAW_sa"
+        
+        Args:
+            raw_ids: 逗号分隔的项目ID字符串
+            
+        Returns:
+            排序后组合的项目ID字符串
+        """
+        if not raw_ids or not raw_ids.strip():
+            return ''
+        
+        # 解析：替换中文逗号为英文逗号，分割，去空值
+        ids = raw_ids.replace('，', ',').split(',')
+        ids = [pid.strip() for pid in ids if pid.strip()]
+        
+        if not ids:
+            return ''
+        
+        # 按字母排序（ASCII顺序：数字 < 大写字母 < 小写字母）
+        sorted_ids = sorted(ids)
+        
+        # 组合
+        result = ''.join(sorted_ids)
+        return result
+    
+    def _get_option_label(self, option_type: str, option_value: str) -> str:
+        """根据 option_type 和 option_value 获取对应的 option_label
+        
+        Args:
+            option_type: 选项类型（对应 field_id）
+            option_value: 选项值（对应 option_value）
+            
+        Returns:
+            选项标签（对应 option_label），如果未找到则返回原值
+        """
+        if not option_type or not option_value:
+            return option_value or ''
+        
+        row = self.db_manager.query_one(
+            "SELECT option_label FROM select_options WHERE option_type = %s AND option_value = %s",
+            (option_type, option_value)
+        )
+        
+        if row and row[0]:
+            return row[0]
+        return option_value
+    
+    def _build_file_property(self, project_type: str, project_id: str, metadata: Dict = None) -> str:
+        """生成文件属性字符串
+        
+        生成规则：
+        - 原始数据 (raw): {数据类型label}-{物种label}-[{组织来源label}]
+        - 结果数据 (result): {结果类型label}-[{关联项目编号（排序后组合）}]
+        
+        Args:
+            project_type: 'raw' 或 'result'
+            project_id: 项目编号
+            metadata: 可选的元数据字典（如果已传入则使用，否则从数据库查询）
+            
+        Returns:
+            文件属性字符串
+        """
+        if project_type == 'raw':
+            # 原始数据文件属性
+            raw_type = metadata.get('raw_type', '') if metadata else ''
+            raw_species = metadata.get('raw_species', '') if metadata else ''
+            raw_tissue = metadata.get('raw_tissue', '') if metadata else ''
+            
+            # 获取 label（使用第一个值，因为组织来源可能是逗号分隔的多值）
+            raw_type_label = self._get_option_label('raw_type', raw_type)
+            raw_species_label = self._get_option_label('raw_species', raw_species)
+            
+            # 组织来源取第一个值的 label
+            raw_tissue_first = raw_tissue.split(',')[0].strip() if raw_tissue else ''
+            raw_tissue_label = self._get_option_label('raw_tissue', raw_tissue_first)
+            
+            # 构建属性字符串
+            if raw_tissue_label:
+                return f"{raw_type_label}-{raw_species_label}-{raw_tissue_label}"
+            else:
+                return f"{raw_type_label}-{raw_species_label}"
+        
+        else:
+            # 结果数据文件属性
+            results_type = metadata.get('results_type', '') if metadata else ''
+            results_raw = metadata.get('results_raw', '') if metadata else ''
+            
+            # 获取类型 label
+            results_type_label = self._get_option_label('results_type', results_type)
+            
+            # 解析和排序关联项目编号
+            if results_raw:
+                raw_ids = self._parse_and_sort_project_ids(results_raw)
+                return f"{results_type_label}-{raw_ids}"
+            else:
+                return results_type_label
     
     def append_field_value(self, table_name: str, project_id: str, field_id: str, new_value: str) -> str:
         """追加字段值（去重）
@@ -703,14 +833,26 @@ class BioDataManager:
             return new_value
         
         current_value = row[0] if row[0] else ''
+        print(f"[DEBUG] append_field_value: {table_name}.{field_id} for {project_id}")
+        print(f"[DEBUG]   current_value: '{current_value}'")
+        print(f"[DEBUG]   new_value: '{new_value}'")
         
         # 2. 追加新值（去重）
         if current_value:
-            values = list(set(current_value.split(',') + [new_value]))
-            values = [v for v in values if v]  # 去除空字符串
-            new_value_str = ','.join(values)
+            existing_ids = current_value.split(',')
+            # 对于 results_raw 字段，需要去重但保持逗号分隔格式
+            if field_id == 'results_raw':
+                all_ids = [i.strip() for i in existing_ids + [new_value] if i.strip()]
+                unique_ids = list(dict.fromkeys(all_ids))  # 保持顺序去重
+                new_value_str = ','.join(unique_ids)
+            else:
+                values = list(set(existing_ids + [new_value]))
+                values = [v for v in values if v]  # 去除空字符串
+                new_value_str = ','.join(values)
         else:
             new_value_str = new_value
+        
+        print(f"[DEBUG]   result: '{new_value_str}'")
         
         # 3. 更新数据库
         self.db_manager.execute(
@@ -802,7 +944,7 @@ class BioDataManager:
             'path': str(folder)
         }
     
-    def import_download_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None) -> Dict:
+    def import_download_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, data_type: str = 'raw') -> Dict:
         """导入下载文件到项目
         
         Args:
@@ -810,7 +952,15 @@ class BioDataManager:
             files: 文件列表
             folder_name: 源文件夹名
             metadata_override: 可选的字段值覆盖/追加（用于导入至已有项目时）
+            data_type: 数据类型 ('raw' 或 'result')
         """
+        if data_type == 'raw':
+            return self._import_raw_files(project_id, files, folder_name, metadata_override)
+        else:
+            return self._import_result_files(project_id, files, folder_name, metadata_override)
+    
+    def _import_raw_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None) -> Dict:
+        """导入原始数据文件到项目"""
         project = self.get_raw_project_by_id(project_id)
         if not project:
             return {'success': False, 'message': '项目不存在'}
@@ -821,13 +971,12 @@ class BioDataManager:
                 if value:
                     self.append_field_value('raw_project', project_id, field_id, value)
         
-        # 获取最新的字段值（可能已被 metadata_override 更新）
-        updated_project = self.get_raw_project_by_id(project_id)
-        raw_type = metadata_override.get('raw_type', '') or updated_project.get('raw_type', '')
-        raw_species = metadata_override.get('raw_species', '') or updated_project.get('raw_species', '')
-        raw_tissue = metadata_override.get('raw_tissue', '') or updated_project.get('raw_tissue', '')
+        # 只使用前端传入的值构建路径
+        raw_type = metadata_override.get('raw_type', '') if metadata_override else ''
+        raw_species = metadata_override.get('raw_species', '') if metadata_override else ''
+        raw_tissue = metadata_override.get('raw_tissue', '') if metadata_override else ''
         
-        # 使用新的字段值构建路径
+        # 路径格式: {rawdata_dir}/{项目ID}/{raw_type}/{raw_species}/{raw_tissue}/
         project_path = self._build_raw_project_path(raw_type, raw_species, raw_tissue, project_id)
 
         # 获取源文件夹路径 - 拼接 /bio/downloads 前缀
@@ -853,6 +1002,73 @@ class BioDataManager:
                 dest_path = project_path / file_path.name
                 shutil.copy2(file_path, dest_path)
                 self.add_file_record('raw', project_id, dest_path)
+                import_count += 1
+        
+        return {
+            'success': True,
+            'imported': import_count,
+            'project_id': project_id,
+            'storage_path': str(project_path)
+        }
+    
+    def _import_result_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None) -> Dict:
+        """导入结果数据文件到项目"""
+        project = self.get_result_project_by_id(project_id)
+        if not project:
+            return {'success': False, 'message': '结果项目不存在'}
+        
+        print(f"[DEBUG] _import_result_files: project_id={project_id}")
+        print(f"[DEBUG] _import_result_files: metadata_override={metadata_override}")
+        print(f"[DEBUG] _import_result_files: current project results_raw={project.get('results_raw', '')}")
+        
+        # 如果有 metadata_override，先追加字段值到 result_project 表
+        if metadata_override:
+            for field_id, value in metadata_override.items():
+                if value:
+                    print(f"[DEBUG] append_field_value: {field_id} = {value}")
+                    self.append_field_value('result_project', project_id, field_id, value)
+        
+        # 只使用前端传入的值构建路径
+        results_type = metadata_override.get('results_type', '') if metadata_override else ''
+        raw_project_ids = ''
+        
+        if metadata_override and metadata_override.get('results_raw'):
+            raw_project_ids = self._parse_and_sort_project_ids(metadata_override['results_raw'])
+            print(f"[DEBUG] path will use raw_project_ids: {raw_project_ids}")
+        
+        # 获取结果类型的缩写
+        results_type_abbr = self.get_abbr('results_type', results_type) if results_type else ''
+        
+        # 构建路径: {results_dir}/{项目ID}/{分析类型缩写}/{关联项目ID}/
+        if raw_project_ids:
+            project_path = self.results_dir / project_id / results_type_abbr / raw_project_ids
+        else:
+            project_path = self.results_dir / project_id / results_type_abbr
+        project_path.mkdir(parents=True, exist_ok=True)
+
+        # 获取源文件夹路径 - 拼接 /bio/downloads 前缀
+        if folder_name:
+            source_folder = self.downloads_dir / folder_name
+            source_folder = Path(source_folder) if not isinstance(source_folder, Path) else source_folder
+        else:
+            source_folder = None
+        
+        import_count = 0
+        for file_info in files:
+            # 支持文件名(字符串)或文件对象(带path)
+            if isinstance(file_info, str):
+                file_name = file_info
+                file_path = source_folder / file_name if source_folder else None
+            else:
+                file_name = file_info.get('name', '')
+                file_path = Path(file_info.get('path', '')) if file_info.get('path') else None
+                if not file_path and source_folder:
+                    file_path = source_folder / file_name
+            
+            if file_path and file_path.exists():
+                dest_path = project_path / file_path.name
+                shutil.copy2(file_path, dest_path)
+                self.add_file_record('result', project_id, dest_path)
                 import_count += 1
         
         return {
@@ -946,18 +1162,17 @@ class BioDataManager:
                 if value:
                     self.append_field_value('result_project', project_id, field_id, value)
         
-        # 获取更新的项目信息
-        project = self.get_result_project_by_id(project_id)
-        if not project:
-            return {'success': False, 'message': '项目不存在'}
+        # 只使用前端传入的值构建路径，不fallback到数据库
+        results_type = metadata_override.get('results_type', '') if metadata_override else ''
+        raw_project_id = metadata_override.get('results_raw', '') if metadata_override else ''
         
-        results_type = metadata_override.get('results_type', '') or project.get('results_type', '')
+        results_type_abbr = self.get_abbr('results_type', results_type) if results_type else ''
         
-        # 根据新的 results_type 构建路径
-        results_type_abbr = self.get_abbr('results_type', results_type) if results_type else 'UNK'
-        
-        # 构建路径: {results_dir}/{结果类型}/{项目ID}/
-        project_path = self.results_dir / results_type_abbr / project_id
+        # 构建路径: {results_dir}/{项目ID}/{分析类型}/{关联项目ID}/
+        if raw_project_id:
+            project_path = self.results_dir / project_id / results_type_abbr / raw_project_id
+        else:
+            project_path = self.results_dir / project_id / results_type_abbr
         project_path.mkdir(parents=True, exist_ok=True)
         
         # 复制文件到新路径

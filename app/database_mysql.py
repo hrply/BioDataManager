@@ -294,6 +294,7 @@ class DatabaseManager:
                     id              INT PRIMARY KEY AUTO_INCREMENT COMMENT '自增ID',
                     file_name       VARCHAR(255) NOT NULL COMMENT '文件名',
                     file_path       VARCHAR(500) NOT NULL COMMENT '文件相对路径(相对于/bio)',
+                    file_property   VARCHAR(500) DEFAULT NULL COMMENT '文件属性(用于显示和筛选)',
                     file_size       BIGINT NOT NULL COMMENT '文件大小(字节)',
                     file_type       VARCHAR(50) DEFAULT NULL COMMENT '文件类型扩展名',
                     file_project_type    ENUM('raw', 'result') NOT NULL COMMENT '所属项目类型',
@@ -301,6 +302,7 @@ class DatabaseManager:
                     imported_at     DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '导入时间',
                     INDEX idx_project (file_project_type, file_project_id),
                     INDEX idx_file_path (file_path),
+                    INDEX idx_file_property (file_property),
                     INDEX idx_imported_at (imported_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件记录表'
             """)

@@ -140,6 +140,9 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- 弹窗放在tab-content外部，确保不受tab切换影响 -->
 <!-- 导入弹窗 -->
 <div class="modal fade" id="import-modal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg">
@@ -234,7 +237,7 @@
 
 <!-- 详情弹窗 -->
 <div class="modal fade" id="detail-modal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl" style="max-width: 75vw;">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">项目详情</h5>
@@ -282,6 +285,8 @@
             if (mode === 'mode-new') {
                 $('#new-project-form').show();
                 $('#existing-project-form').hide();
+                window.currentProjectResultsRaw = ''; // 清除保存的 results_raw 值
+                window.currentProjectRawTissue = ''; // 清除保存的 raw_tissue 值
                 loadMetadataFields(); // 新建项目模式：加载动态字段（multi_select）
             } else {
                 $('#new-project-form').hide();
@@ -424,11 +429,18 @@
         const dataType = $('input[name="data-type"]:checked').attr('id');
         const isRaw = dataType === 'type-raw';
         
+        // 根据数据类型使用正确的字段名
         const formData = {
             project_id: $('#new-project-id').val(),
-            raw_title: $('#new-project-title').val(),
             data_type: isRaw ? 'raw' : 'result'
         };
+        
+        // 根据数据类型设置项目名称字段
+        if (isRaw) {
+            formData.raw_title = $('#new-project-title').val();
+        } else {
+            formData.results_title = $('#new-project-title').val();
+        }
         
         // metadataFields 已经是过滤后的字段（只读字段已排除），直接遍历收集数据
         metadataFields.forEach(function(field) {
@@ -444,7 +456,17 @@
             } else {
                 formData[fieldId] = fieldEl.val();
             }
-        });
+        })
+        
+        // results_raw 字段：合并已有值和新输入的值（逗号分隔，支持中英文逗号）
+        const resultsRawField = metadataFields.find(f => f.field_id === 'results_raw');
+        if (resultsRawField) {
+            const fieldEl = $('#metadata-' + resultsRawField.field_id);
+            const resultsRawInput = fieldEl.val()?.trim() || '';
+            if (resultsRawInput) {
+                formData.results_raw = resultsRawInput;
+            }
+        }
         
         return formData;
     }
@@ -452,9 +474,11 @@
     // 验证表单
     function validateFormData(data) {
         const errors = [];
+        const isRaw = data.data_type === 'raw';
         
-        // 检查项目名称
-        if (!data.raw_title) {
+        // 根据数据类型检查项目名称
+        const titleField = isRaw ? 'raw_title' : 'results_title';
+        if (!data[titleField]) {
             errors.push('项目名称为必填字段');
         }
         
@@ -569,64 +593,6 @@
             });
             list.html(html);
         }
-    }
-
-    function renderProjectList() {
-        const tbody = $('#project-list');
-        $('#project-count').text(projects.length + ' 个');
-        
-        if (projects.length === 0) {
-            tbody.html(`
-                <tr>
-                    <td colspan="6" class="text-center py-4 text-muted">
-                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
-                        暂无已导入项目
-                    </td>
-                </tr>
-            `);
-        } else {
-            let html = '';
-            projects.forEach(function(p, index) {
-                const dataTypeLabel = getDataTypeLabel(p.data_type || p.results_type);
-                const fileCount = p.raw_file_count || p.results_file_count || 0;
-                const projectTitle = p.title || p.raw_title || p.results_title || '-';
-                const projectId = p.raw_id || p.results_id || p.id;
-                html += `
-                    <tr>
-                        <td>${index + 1}</td>
-                        <td><code>${projectId}</code></td>
-                        <td>${projectTitle}</td>
-                        <td><span class="badge bg-info">${dataTypeLabel}</span></td>
-                        <td>${fileCount}</td>
-                        <td>
-                            <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('${projectId}')">
-                                <i class="bi bi-eye"></i> 查看
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            });
-            tbody.html(html);
-        }
-    }
-
-    function getDataTypeLabel(type) {
-        const labels = {
-            'rnaseq': 'RNA-Seq',
-            'singlecell': '单细胞',
-            'spatial': '空间组',
-            'proteomics': '蛋白组',
-            'phosphoproteomics': '磷酸化组',
-            'multiomics': '多组学',
-            'alignment': '比对',
-            'counts': '计数矩阵',
-            'peak_calling': 'Peak Calling',
-            'variants': '变异检测',
-            'enrichment': '富集分析',
-            'visualization': '可视化',
-            'other': '其他'
-        };
-        return labels[type] || type || '未分类';
     }
 
     // ==================== 项目加载（使用新API）====================
@@ -804,6 +770,10 @@
         const container = $('#dynamic-metadata-fields');
         const tableType = projectType;
 
+        // 保存当前项目的字段值（用于追加新值）
+        window.currentProjectResultsRaw = currentMetadata.results_raw || '';
+        window.currentProjectRawTissue = currentMetadata.raw_tissue || '';
+
         // 获取字段配置
         apiGet('/api/metadata/fields', { table: tableType }).then(function(res) {
             if (res.success && res.fields) {
@@ -829,7 +799,7 @@
                 let html = '<div class="row g-2 mb-2">';
 
                 displayFields.forEach(function(field) {
-                    const fieldId = 'field-' + field.field_id;
+                    const fieldId = 'metadata-' + field.field_id;
                     const currentValue = currentMetadata[field.field_id] || '';
                     const fieldType = field.field_type || 'text';
                     const fieldOptions = field.field_options || [];
@@ -888,6 +858,10 @@
         // 重置表单
         $('#mode-new').prop('checked', true).trigger('change');
         generateProjectId();
+        
+        // 清除保存的已有项目字段值
+        window.currentProjectResultsRaw = '';
+        window.currentProjectRawTissue = '';
         
         // 加载动态元数据字段
         loadMetadataFields();
@@ -964,6 +938,13 @@
             // 新建项目 - 使用动态表单数据
             const formData = getFormData();
             
+            // 调试日志：输出收集的表单数据
+            console.log('DEBUG formData:', JSON.stringify(formData, null, 2));
+            console.log('DEBUG metadataFields count:', metadataFields.length);
+            console.log('DEBUG isRaw:', isRaw);
+            console.log('DEBUG results_title:', formData.results_title);
+            console.log('DEBUG results_type:', formData.results_type);
+            
             // 验证必填字段
             const errors = validateFormData(formData);
             if (errors.length > 0) {
@@ -972,8 +953,10 @@
             }
             
             requestData.project_info = formData;
+            console.log('DEBUG requestData:', JSON.stringify(requestData, null, 2));
             
             apiPost('/api/import-download', requestData).then(function(res) {
+                console.log('DEBUG API response:', res);
                 if (res.success) {
                     showToast('导入成功');
                     $('#import-modal').modal('hide');
@@ -998,18 +981,88 @@
             if (isRaw) {
                 const raw_type = $('#field-raw_type').val();
                 const raw_species = $('#field-raw_species').val();
-                const raw_tissue = $('#field-raw_tissue').val();
+                const new_raw_tissue = $('#field-raw_tissue').val();
                 if (raw_type) metadata_override.raw_type = raw_type;
                 if (raw_species) metadata_override.raw_species = raw_species;
-                if (raw_tissue) metadata_override.raw_tissue = raw_tissue;
+                if (new_raw_tissue) {
+                    // raw_tissue 字段：需要合并已有值和新选择的值（多选）
+                    const current_raw_tissue = window.currentProjectRawTissue || '';
+                    let merged_tissue = '';
+                    if (current_raw_tissue) {
+                        const existingIds = current_raw_tissue.split(',').map(s => s.trim()).filter(s => s);
+                        const newIds = Array.isArray(new_raw_tissue) ? new_raw_tissue : [new_raw_tissue];
+                        const allIds = [...new Set([...existingIds, ...newIds])]; // 合并并去重
+                        merged_tissue = allIds.join(',');
+                    } else {
+                        merged_tissue = Array.isArray(new_raw_tissue) ? new_raw_tissue.join(',') : new_raw_tissue;
+                    }
+                    metadata_override.raw_tissue = merged_tissue;
+                }
             } else {
                 const results_type = $('#field-results_type').val();
+                
+                            // 动态获取 results_raw 字段值
+                            let new_results_raw = '';
+                            const resultsRawField = metadataFields.find(f => f.field_id === 'results_raw');
+                            if (resultsRawField) {
+                                // 元素ID格式是 metadata-{field_id}
+                                const fieldEl = $('#metadata-' + resultsRawField.field_id);
+                                new_results_raw = fieldEl.val()?.trim() || '';
+                            }                
                 if (results_type) metadata_override.results_type = results_type;
+                
+                // results_raw 字段：合并已有值和新输入的值（无论是否为空都传递）
+                const current_results_raw = window.currentProjectResultsRaw || '';
+                let merged_raw = '';
+                if (new_results_raw) {
+                    // 新值非空，合并已有值和新值
+                    const existingIds = current_results_raw.split(/[,，]/).map(s => s.trim()).filter(s => s);
+                    const newIds = new_results_raw.split(/[,，]/).map(s => s.trim()).filter(s => s);
+                    const allIds = [...new Set([...existingIds, ...newIds])];
+                    merged_raw = allIds.join(',');
+                } else if (current_results_raw) {
+                    // 新值为空但已有值存在，使用已有值
+                    merged_raw = current_results_raw;
+                } else {
+                    // 都为空，使用空字符串
+                    merged_raw = '';
+                }
+                metadata_override.results_raw = merged_raw;
             }
             
             requestData.metadata_override = metadata_override;
             
+            // 调试日志：显示完整请求数据
+            console.log('=== DEBUG IMPORT TO EXISTING PROJECT ===');
+            console.log('mode:', mode);
+            console.log('isRaw:', isRaw);
+            console.log('metadataFields:', metadataFields.map(f => ({id: f.field_id, seq: f.field_seq})));
+            console.log('metadata_override (before):', JSON.stringify(metadata_override, null, 2));
+            console.log('window.currentProjectResultsRaw:', window.currentProjectResultsRaw);
+            
+            // 尝试查找 results_raw 字段
+            const resultsRawField = metadataFields.find(f => f.field_id === 'results_raw');
+            console.log('resultsRawField in metadataFields:', resultsRawField ? 'found' : 'NOT FOUND');
+            if (resultsRawField) {
+                const el = $('#metadata-' + resultsRawField.field_id);
+                console.log('Element #metadata-' + resultsRawField.field_id + ' exists:', el.length > 0);
+                console.log('Element value:', el.val());
+                // 显示 HTML 结构
+                console.log('Element HTML:', el.prop('outerHTML')?.substring(0, 200));
+            }
+            
+            // 显示所有 metadata 字段的 HTML
+            console.log('All metadata fields HTML:');
+            metadataFields.forEach(f => {
+                const e = $('#metadata-' + f.field_id);
+                console.log(`  #metadata-${f.field_id}:`, e.length ? e.val() : 'NOT FOUND');
+            });
+            
+            console.log('requestData:', JSON.stringify(requestData, null, 2));
+            console.log('==========================================');
+            
             apiPost('/api/import-download', requestData).then(function(res) {
+                console.log('API response:', JSON.stringify(res, null, 2));
                 if (res.success) {
                     showToast('导入成功');
                     $('#import-modal').modal('hide');

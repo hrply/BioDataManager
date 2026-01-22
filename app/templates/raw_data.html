@@ -147,60 +147,8 @@
                         <label class="form-label">项目名称 <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="project-raw_title" required>
                     </div>
-                    <!-- 第三行：数据类型 + 物种 -->
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">数据类型 <span class="text-danger">*</span></label>
-                            <select class="form-select" id="project-raw_type" required></select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">物种 <span class="text-danger">*</span></label>
-                            <select class="form-select" id="project-raw_species" required></select>
-                        </div>
-                    </div>
-                    <!-- 第四行：组织来源 + DOI -->
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">组织来源</label>
-                            <select class="form-select" id="project-raw_tissue" multiple></select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">DOI</label>
-                            <input type="text" class="form-control" id="project-raw_DOI" placeholder="10.xxxx/xxxxx">
-                        </div>
-                    </div>
-                    <!-- 第五行：数据库编号 + 数据库链接 -->
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">数据库编号</label>
-                            <input type="text" class="form-control" id="project-raw_db_id">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">数据库链接</label>
-                            <input type="url" class="form-control" id="project-raw_db_link">
-                        </div>
-                    </div>
-                    <!-- 第六行：作者 + 期刊 -->
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">作者</label>
-                            <input type="text" class="form-control" id="project-raw_author">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">期刊</label>
-                            <input type="text" class="form-control" id="project-raw_article">
-                        </div>
-                    </div>
-                    <!-- 描述 -->
-                    <div class="mb-3">
-                        <label class="form-label">描述</label>
-                        <textarea class="form-control" id="project-raw_description" rows="3"></textarea>
-                    </div>
-                    <!-- 关键词 -->
-                    <div class="mb-0">
-                        <label class="form-label">关键词</label>
-                        <input type="text" class="form-control" id="project-raw_keywords" placeholder="多个关键词用逗号分隔">
-                    </div>
+                    <!-- 动态元数据字段区域 -->
+                    <div id="dynamic-project-fields"></div>
                     <!-- 只读字段：由系统自动管理 -->
                     <div class="row mt-4">
                         <div class="col-md-6">
@@ -302,6 +250,10 @@
                         const options = field.field_options || [];
                         const $select = $(`#project-${field.field_id}`);
                         const $filter = $(`#filter-${field.field_id}`);
+                        
+                        // 先清空所有下拉框，避免重复
+                        $select.empty();
+                        $filter.empty();
                         
                         options.forEach(function(opt) {
                             $select.append(`<option value="${opt.value}">${opt.label}</option>`);
@@ -420,9 +372,8 @@
         $('#project-id').val('');
         generateProjectId();
         
-        // 重新加载选项
-        $('#project-raw_type, #project-raw_species, #project-raw_tissue').empty();
-        loadFilterOptions();
+        // 加载动态字段
+        loadNewProjectFields('raw');
         
         new bootstrap.Modal($('#project-modal')).show();
     }
@@ -433,21 +384,107 @@
         $('#project-raw_id').val(`RAW_${uuid}`);
     }
 
+    // 加载新建项目动态字段
+    function loadNewProjectFields(tableType) {
+        apiGet('/api/metadata/fields', { table: tableType }).then(function(res) {
+            if (res.success && res.fields) {
+                // 过滤 field_readonly=0 的字段，按 field_seq 排序
+                const fields = res.fields
+                    .filter(f => f.field_readonly === false || f.field_readonly === 0)
+                    .filter(f => f.field_id !== 'raw_id' && f.field_id !== 'raw_title') // 排除已硬编码的字段
+                    .sort((a, b) => a.field_seq - b.field_seq);
+                // 保存字段配置供 saveProject 使用
+                window.newProjectFields = fields;
+                renderNewProjectFields(fields, 'dynamic-project-fields');
+            }
+        });
+    }
+
+    // 渲染新建项目字段
+    function renderNewProjectFields(fields, containerId) {
+        const container = $('#' + containerId);
+        if (fields.length === 0) {
+            container.html('');
+            return;
+        }
+
+        let html = '';
+        let colIndex = 0;
+        let currentRowFields = [];
+
+        fields.forEach(function(field, index) {
+            const fieldId = 'project-' + field.field_id;
+            const requiredMark = field.field_necessary ? '<span class="text-danger">*</span>' : '';
+            const placeholder = field.field_placeholder || '2'; // 1=单列, 2=双列
+            const fieldOptions = field.field_options || [];
+            
+            // 根据 placeholder 决定布局
+            if (placeholder === '1') {
+                // 单列：先关闭当前行
+                if (currentRowFields.length > 0) {
+                    html += '<div class="row mb-3">' + currentRowFields.join('') + '</div>';
+                    currentRowFields = [];
+                    colIndex = 0;
+                }
+                // 生成单列表单控件
+                let inputHtml = '';
+                if (field.field_type === 'select') {
+                    // 新建/编辑项目使用 multi_select 模式
+                    inputHtml = `<select class="form-select" id="${fieldId}" multiple>
+                        ${fieldOptions.map(function(opt) {
+                            const val = opt.value !== undefined ? opt.value : opt;
+                            const label = opt.label !== undefined ? opt.label : opt;
+                            return `<option value="${val}">${label}</option>`;
+                        }).join('')}
+                    </select>`;
+                } else if (field.field_type === 'textarea') {
+                    inputHtml = `<textarea class="form-control" id="${fieldId}" rows="3"></textarea>`;
+                } else {
+                    inputHtml = `<input type="text" class="form-control" id="${fieldId}">`;
+                }
+                html += `<div class="mb-3">
+                    <label class="form-label">${field.field_name} ${requiredMark}</label>
+                    ${inputHtml}
+                </div>`;
+            } else {
+                // 双列模式
+                let inputHtml = '';
+                if (field.field_type === 'select') {
+                    inputHtml = `<select class="form-select" id="${fieldId}" multiple>
+                        ${fieldOptions.map(function(opt) {
+                            const val = opt.value !== undefined ? opt.value : opt;
+                            const label = opt.label !== undefined ? opt.label : opt;
+                            return `<option value="${val}">${label}</option>`;
+                        }).join('')}
+                    </select>`;
+                } else if (field.field_type === 'textarea') {
+                    inputHtml = `<textarea class="form-control" id="${fieldId}" rows="3"></textarea>`;
+                } else {
+                    inputHtml = `<input type="text" class="form-control" id="${fieldId}">`;
+                }
+                currentRowFields.push(`<div class="col-md-6">
+                    <label class="form-label">${field.field_name} ${requiredMark}</label>
+                    ${inputHtml}
+                </div>`);
+                colIndex++;
+
+                // 每2个字段或最后一个字段时关闭行
+                if (colIndex === 2 || index === fields.length - 1) {
+                    html += '<div class="row mb-3">' + currentRowFields.join('') + '</div>';
+                    currentRowFields = [];
+                    colIndex = 0;
+                }
+            }
+        });
+
+        container.html(html);
+    }
+
     // 保存项目
     function saveProject() {
         const data = {
             raw_id: $('#project-raw_id').val(),
             raw_title: $('#project-raw_title').val(),
-            raw_type: $('#project-raw_type').val(),
-            raw_species: $('#project-raw_species').val(),
-            raw_tissue: $('#project-raw_tissue').val().join(','),
-            raw_DOI: $('#project-raw_DOI').val(),
-            raw_db_id: $('#project-raw_db_id').val(),
-            raw_db_link: $('#project-raw_db_link').val(),
-            raw_author: $('#project-raw_author').val(),
-            raw_article: $('#project-raw_article').val(),
-            raw_description: $('#project-raw_description').val(),
-            raw_keywords: $('#project-raw_keywords').val(),
             raw_file_count: $('#project-raw_file_count').val() || 0,
             raw_total_size: $('#project-raw_total_size').val() || 0
         };
@@ -455,6 +492,29 @@
         if (!data.raw_title) {
             showToast('请填写项目名称', 'warning');
             return;
+        }
+        
+        // 从动态字段收集数据
+        if (window.newProjectFields && window.newProjectFields.length > 0) {
+            window.newProjectFields.forEach(function(field) {
+                const fieldId = 'project-' + field.field_id;
+                const el = $('#' + fieldId);
+                if (el.length) {
+                    if (field.field_type === 'select') {
+                        // select 类型获取选中的值（多选用逗号分隔）
+                        const selectedValues = el.val();
+                        if (selectedValues && Array.isArray(selectedValues)) {
+                            data[field.field_id] = selectedValues.join(',');
+                        } else {
+                            data[field.field_id] = '';
+                        }
+                    } else if (field.field_type === 'textarea') {
+                        data[field.field_id] = el.val();
+                    } else {
+                        data[field.field_id] = el.val();
+                    }
+                }
+            });
         }
         
         const isEdit = $('#project-id').val();
@@ -549,7 +609,7 @@
                 }
                 
                 if (p.raw_keywords) {
-                    const keywords = p.raw_keywords.split(',').map(k => k.trim());
+                    const keywords = (p.raw_keywords || '').replace(/，/g, ',').split(',').map(k => k.trim());
                     html += `
                         <div class="mt-3">
                             <label class="text-muted small">关键词</label>

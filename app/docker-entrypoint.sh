@@ -7,8 +7,22 @@
 
 set -e
 
+# 备份 /app 目录
 echo "========================================"
-echo "BioData Manager 容器启动"
+echo "执行备份..."
+echo "========================================"
+
+# 删除旧备份
+if [ -d /appbackup ]; then
+    echo "删除旧备份 /appbackup..."
+    rm -rf /appbackup
+fi
+
+# 创建新备份
+echo "备份 /app 至 /appbackup..."
+cp -a /app /appbackup
+
+echo "备份完成!"
 echo "========================================"
 
 # 等待MySQL就绪

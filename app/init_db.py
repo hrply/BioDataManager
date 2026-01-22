@@ -199,11 +199,12 @@ def init_field_config(db, force=False):
     file_fields = [
         ('file_name', '文件名', 'text', 'file', 1, 0, None, '2', 0),
         ('file_path', '文件路径', 'text', 'file', 1, 1, None, '2', 0),
-        ('file_size', '文件大小', 'text', 'file', 0, 2, None, '2', 0),
-        ('file_type', '文件类型', 'text', 'file', 0, 3, None, '2', 0),
-        ('file_project_type', '项目类型', 'text', 'file', 1, 4, None, '2', 0),
-        ('file_project_id', '项目编号', 'text', 'file', 1, 5, None, '2', 0),
-        ('imported_at', '导入时间', 'text', 'file', 0, 6, None, '2', 0),
+        ('file_property', '文件属性', 'text', 'file', 0, 2, None, '2', 0),
+        ('file_size', '文件大小', 'text', 'file', 0, 3, None, '2', 0),
+        ('file_type', '文件类型', 'text', 'file', 0, 4, None, '2', 0),
+        ('file_project_type', '项目类型', 'text', 'file', 1, 5, None, '2', 0),
+        ('file_project_id', '项目编号', 'text', 'file', 1, 6, None, '2', 0),
+        ('imported_at', '导入时间', 'text', 'file', 0, 7, None, '2', 0),
     ]
     
     all_fields = raw_fields + result_fields + file_fields
@@ -267,10 +268,10 @@ def init_select_options(db, force=False):
     
     # 物种选项
     raw_species_options = [
-        ('raw_species', 'Homo sapiens', '人', 1),
-        ('raw_species', 'Mus musculus', '小鼠', 2),
-        ('raw_species', 'Rattus norvegicus', '大鼠', 3),
-        ('raw_species', 'Others', '其他', 4),
+        ('Homo sapiens', '人', 1),
+        ('Mus musculus', '小鼠', 2),
+        ('Rattus norvegicus', '大鼠', 3),
+        ('Others', '其他', 4),
     ]
     
     # 组织来源选项
@@ -336,6 +337,7 @@ def init_select_options(db, force=False):
     
     for option_type, options in all_options:
         for opt in options:
+            # opt 是 (option_value, option_label, option_seq) 三元组
             existing = db.query_one(
                 "SELECT id FROM select_options WHERE option_type = %s AND option_value = %s",
                 (option_type, opt[0])
@@ -343,7 +345,7 @@ def init_select_options(db, force=False):
             if not existing:
                 db.execute(
                     "INSERT INTO select_options (option_type, option_value, option_label, option_seq) VALUES (%s, %s, %s, %s)",
-                    (option_type,) + opt
+                    (option_type, opt[0], opt[1], opt[2])
                 )
                 print(f"  添加选项: {option_type} -> {opt[1]}")
             else:

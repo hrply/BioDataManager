@@ -552,13 +552,19 @@ def api_import_download():
         project_info = data.get('project_info', {})
         folder_name = data.get('folder_name')
         metadata_override = data.get('metadata_override', {})
+        data_type = data.get('data_type', 'raw')  # 获取数据类型：raw 或 result
         
         # 如果没有 project_id但有 project_info，则创建新项目
         if not project_id and project_info:
-            project = get_manager().create_project(project_info)
-            # create_project 返回的是项目字典（包含 raw_id）
+            # 根据数据类型创建对应的项目
+            if data_type == 'result':
+                project = get_manager().create_result_project(project_info)
+            else:
+                project = get_manager().create_raw_project(project_info)
+            
             if not project:
                 return jsonify({'success': False, 'message': '创建项目失败'})
+            
             # 获取项目ID
             project_id = project.get('raw_id') or project.get('results_id') or project.get('id')
             if not project_id:
@@ -566,7 +572,9 @@ def api_import_download():
         
         if not project_id or not files:
             return jsonify({'success': False, 'message': '缺少参数'})
-        result = get_manager().import_download_files(project_id, files, folder_name, metadata_override)
+        
+        # 根据数据类型调用相应的导入函数
+        result = get_manager().import_download_files(project_id, files, folder_name, metadata_override, data_type)
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
