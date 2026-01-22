@@ -155,8 +155,7 @@
                             <select class="form-select" id="field-field_type" required onchange="toggleOptionsField()">
                                 <option value="text">单行文本</option>
                                 <option value="textarea">多行文本</option>
-                                <option value="select">单选下拉</option>
-                                <option value="multi_select">多选下拉</option>
+                                <option value="select">下拉选项</option>
                             </select>
                         </div>
                         <div class="col-md-6">
@@ -348,8 +347,8 @@
                     const readonlyText = f.field_readonly == 1 ? '是' : '否';
                     const readonlyClass = f.field_readonly == 1 ? 'text-warning' : 'text-muted';
                     
-                    const fieldTypeText = f.field_type === 'text' ? '文本' : f.field_type === 'textarea' ? '多行文本' : f.field_type === 'select' ? '单选' : '多选';
-                    const fieldTypeClass = f.field_type === 'select' || f.field_type === 'multi_select' ? 'bg-info' : 'bg-secondary';
+                    const fieldTypeText = f.field_type === 'text' ? '文本' : f.field_type === 'textarea' ? '多行文本' : '下拉选项';
+                    const fieldTypeClass = f.field_type === 'select' ? 'bg-info' : 'bg-secondary';
                     const necessaryText = f.field_necessary == 1 ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-dash-circle text-muted"></i>';
                     
                     // 编辑模式下生成可编辑的输入框
@@ -367,7 +366,6 @@
                             <option value="text" ${f.field_type === 'text' ? 'selected' : ''}>文本</option>
                             <option value="textarea" ${f.field_type === 'textarea' ? 'selected' : ''}>多行文本</option>
                             <option value="select" ${f.field_type === 'select' ? 'selected' : ''}>单选</option>
-                            <option value="multi_select" ${f.field_type === 'multi_select' ? 'selected' : ''}>多选</option>
                            </select>`
                         : `<span class="badge ${fieldTypeClass}">${fieldTypeText}</span>`;
                     
@@ -491,7 +489,7 @@
         const fieldType = $('#field-field_type').val();
         const options = [];
         
-        if (fieldType === 'select' || fieldType === 'multi_select') {
+        if (fieldType === 'select') {
             $('#options-container .option-row').each(function() {
                 const value = $(this).find('[name="opt-value"]').val();
                 const label = $(this).find('[name="opt-label"]').val();
@@ -550,7 +548,7 @@
     // 切换选项字段显示
     function toggleOptionsField() {
         const type = $('#field-field_type').val();
-        $('#options-field').toggle(type === 'select' || type === 'multi_select');
+        $('#options-field').toggle(type === 'select');
     }
 
     // 添加选项行

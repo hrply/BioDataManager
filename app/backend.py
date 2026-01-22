@@ -79,10 +79,11 @@ class BioDataManager:
     def __init__(self, db_manager: DatabaseManager, config_manager: MetadataConfigManager):
         self.db_manager = db_manager
         self.config_manager = config_manager
-        
+
         # 路径配置（数据库设计规范要求）
-        self.raw_data_dir = Path("/bioraw/rawdata")
+        self.raw_data_dir = Path("/bio/rawdata")
         self.results_dir = Path("/bio/results")
+        self.downloads_dir = Path("/bio/downloads")
     
     def generate_project_id(self, project_type: str) -> str:
         """生成项目编号（数据库设计规范：格式: {TYPE}_{8位UUID}）"""
@@ -124,7 +125,7 @@ class BioDataManager:
         for unit in ['B', 'KB', 'MB', 'GB']:
             if size_bytes < 1024:
                 return f"{size_bytes:.1f} {unit}"
-            size_bytes /= 1024
+            size_bytes /= 1024 # type: ignore
         return f"{size_bytes:.1f} TB"
     
     # ==================== 原始数据项目管理 ====================
@@ -227,8 +228,25 @@ class BioDataManager:
             "SELECT * FROM raw_project WHERE raw_id = %s",
             (raw_id,)
         )
-        
+
         if row:
+            # 获取项目文件列表
+            files = self.db_manager.query("""
+                SELECT id, file_name, file_path, file_size, imported_at
+                FROM file_record
+                WHERE file_project_type = 'raw' AND file_project_id = %s
+            """, (raw_id,))
+
+            file_list = []
+            for f in files:
+                file_list.append({
+                    'id': f[0],
+                    'file_name': f[1],
+                    'file_path': f[2],
+                    'file_size': f[3],
+                    'imported_at': f[4].strftime('%Y-%m-%d %H:%M:%S') if f[4] else None
+                })
+
             return {
                 'id': row[0],
                 'raw_id': row[1],
@@ -246,7 +264,8 @@ class BioDataManager:
                 'raw_file_count': row[13],
                 'raw_total_size': row[14],
                 'created_at': row[15],
-                'updated_at': row[16]
+                'updated_at': row[16],
+                'files': file_list
             }
         return None
     
@@ -403,8 +422,25 @@ class BioDataManager:
             "SELECT * FROM result_project WHERE results_id = %s",
             (results_id,)
         )
-        
+
         if row:
+            # 获取项目文件列表
+            files = self.db_manager.query("""
+                SELECT id, file_name, file_path, file_size, imported_at
+                FROM file_record
+                WHERE file_project_type = 'result' AND file_project_id = %s
+            """, (results_id,))
+
+            file_list = []
+            for f in files:
+                file_list.append({
+                    'id': f[0],
+                    'file_name': f[1],
+                    'file_path': f[2],
+                    'file_size': f[3],
+                    'imported_at': f[4].strftime('%Y-%m-%d %H:%M:%S') if f[4] else None
+                })
+
             return {
                 'id': row[0],
                 'results_id': row[1],
@@ -416,7 +452,8 @@ class BioDataManager:
                 'results_file_count': row[7],
                 'results_total_size': row[8],
                 'created_at': row[9],
-                'updated_at': row[10]
+                'updated_at': row[10],
+                'files': file_list
             }
         return None
     
@@ -633,6 +670,56 @@ class BioDataManager:
         """删除生物结果项目（兼容旧API）"""
         return self.delete_result_project(project_id)
     
+    # ==================== 字段值追加 ====================
+    
+    def append_field_value(self, table_name: str, project_id: str, field_id: str, new_value: str) -> str:
+        """追加字段值（去重）
+        
+        当前值: "Lung" → 新值: "Liver" → 结果: "Lung,Liver"
+        当前值: "Lung" → 新值: "Lung" → 结果: "Lung"（不重复）
+        
+        Args:
+            table_name: 'raw_project' 或 'result_project'
+            project_id: 项目编号（非自增ID）
+            field_id: 字段名
+            new_value: 新值
+            
+        Returns:
+            追加后的字段值字符串
+        """
+        if not project_id or not field_id or not new_value:
+            return new_value
+        
+        # 根据表名确定ID字段
+        id_field = 'raw_id' if table_name == 'raw_project' else 'results_id'
+        
+        # 1. 查询当前值
+        row = self.db_manager.query_one(
+            f"SELECT {field_id} FROM {table_name} WHERE {id_field} = %s",
+            (project_id,)
+        )
+        
+        if not row:
+            return new_value
+        
+        current_value = row[0] if row[0] else ''
+        
+        # 2. 追加新值（去重）
+        if current_value:
+            values = list(set(current_value.split(',') + [new_value]))
+            values = [v for v in values if v]  # 去除空字符串
+            new_value_str = ','.join(values)
+        else:
+            new_value_str = new_value
+        
+        # 3. 更新数据库
+        self.db_manager.execute(
+            f"UPDATE {table_name} SET {field_id} = %s WHERE {id_field} = %s",
+            (new_value_str, project_id)
+        )
+        
+        return new_value_str
+    
     def get_all_processed_data(self) -> List[Dict]:
         """获取所有处理数据"""
         return self.get_files_by_project('result', '')
@@ -682,14 +769,26 @@ class BioDataManager:
         
         # 获取文件列表
         files = []
+        download_dir = Path("/bio/downloads")
         for f in folder.iterdir():
             if f.is_file() and not f.name.startswith('.'):
                 file_ext = f.suffix.lower()
                 file_type = self.FILE_TYPE_MAPPING.get(file_ext, 'Other')
+                # 计算相对于 /bio/downloads 的路径
+                try:
+                    if download_dir.exists():
+                        relative_path = f.relative_to(download_dir)
+                        relative_path_str = str(relative_path)
+                    else:
+                        # 如果 download_dir 不存在，使用文件夹名/文件名
+                        relative_path_str = f"{folder.name}/{f.name}"
+                except (ValueError, OSError):
+                    relative_path_str = f"{folder.name}/{f.name}"
                 files.append({
                     'name': f.name,
-                    'size': self._format_size(f.stat().st_size),
-                    'type': file_type
+                    'size': f.stat().st_size,  # 返回原始字节数，由前端格式化
+                    'type': file_type,
+                    'relative_path': relative_path_str
                 })
         
         return {
@@ -703,22 +802,40 @@ class BioDataManager:
             'path': str(folder)
         }
     
-    def import_download_files(self, project_id: str, files: List, folder_name: str = None) -> Dict:
-        """导入下载文件到项目"""
+    def import_download_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None) -> Dict:
+        """导入下载文件到项目
+        
+        Args:
+            project_id: 项目编号
+            files: 文件列表
+            folder_name: 源文件夹名
+            metadata_override: 可选的字段值覆盖/追加（用于导入至已有项目时）
+        """
         project = self.get_raw_project_by_id(project_id)
         if not project:
             return {'success': False, 'message': '项目不存在'}
         
-        # 使用三级路径结构
-        project_path = self._build_raw_project_path(
-            project.get('raw_type', ''),
-            project.get('raw_species', ''),
-            project.get('raw_tissue', ''),
-            project_id
-        )
+        # 如果有 metadata_override，先追加字段值到 raw_project 表
+        if metadata_override:
+            for field_id, value in metadata_override.items():
+                if value:
+                    self.append_field_value('raw_project', project_id, field_id, value)
         
-        # 获取源文件夹路径
-        source_folder = Path(folder_name) if folder_name else None
+        # 获取最新的字段值（可能已被 metadata_override 更新）
+        updated_project = self.get_raw_project_by_id(project_id)
+        raw_type = metadata_override.get('raw_type', '') or updated_project.get('raw_type', '')
+        raw_species = metadata_override.get('raw_species', '') or updated_project.get('raw_species', '')
+        raw_tissue = metadata_override.get('raw_tissue', '') or updated_project.get('raw_tissue', '')
+        
+        # 使用新的字段值构建路径
+        project_path = self._build_raw_project_path(raw_type, raw_species, raw_tissue, project_id)
+
+        # 获取源文件夹路径 - 拼接 /bio/downloads 前缀
+        if folder_name:
+            source_folder = self.downloads_dir / folder_name
+            source_folder = Path(source_folder) if not isinstance(source_folder, Path) else source_folder
+        else:
+            source_folder = None
         
         import_count = 0
         for file_info in files:
@@ -741,7 +858,8 @@ class BioDataManager:
         return {
             'success': True,
             'imported': import_count,
-            'project_id': project_id
+            'project_id': project_id,
+            'storage_path': str(project_path)
         }
     
     def organize_project_files(self, project_id: str) -> Dict:
@@ -810,11 +928,48 @@ class BioDataManager:
         
         return build_tree(root)
     
-    def import_processed_file(self, project_id: str, file_path: str) -> Dict:
-        """导入处理文件"""
+    def import_processed_file(self, project_id: str, file_path: str, metadata_override: Dict = None) -> Dict:
+        """导入处理文件
+        
+        Args:
+            project_id: 项目编号
+            file_path: 文件路径
+            metadata_override: 可选的字段值覆盖/追加（用于导入至已有项目时）
+        """
         path = Path(file_path)
         if not path.exists():
             return {'success': False, 'message': '文件不存在'}
         
-        self.add_file_record('result', project_id, path)
-        return {'success': True, 'file': path.name}
+        # 如果有 metadata_override，先追加字段值到 result_project 表
+        if metadata_override:
+            for field_id, value in metadata_override.items():
+                if value:
+                    self.append_field_value('result_project', project_id, field_id, value)
+        
+        # 获取更新的项目信息
+        project = self.get_result_project_by_id(project_id)
+        if not project:
+            return {'success': False, 'message': '项目不存在'}
+        
+        results_type = metadata_override.get('results_type', '') or project.get('results_type', '')
+        
+        # 根据新的 results_type 构建路径
+        results_type_abbr = self.get_abbr('results_type', results_type) if results_type else 'UNK'
+        
+        # 构建路径: {results_dir}/{结果类型}/{项目ID}/
+        project_path = self.results_dir / results_type_abbr / project_id
+        project_path.mkdir(parents=True, exist_ok=True)
+        
+        # 复制文件到新路径
+        dest_path = project_path / path.name
+        shutil.copy2(path, dest_path)
+        
+        # 记录文件
+        self.add_file_record('result', project_id, dest_path)
+        
+        return {
+            'success': True,
+            'file': path.name,
+            'project_id': project_id,
+            'storage_path': str(project_path)
+        }

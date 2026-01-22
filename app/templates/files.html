@@ -73,12 +73,18 @@
                         <table class="table table-hover mb-0">
                             <thead class="table-light">
                                 <tr>
-                                    <th>#</th>
-                                    <th>项目编号</th>
-                                    <th>项目名称</th>
-                                    <th>数据类型</th>
-                                    <th>文件数</th>
-                                    <th>操作</th>
+                                    <th width="50">#</th>
+                                    <th width="150" class="sortable" data-sort="project_id" onclick="sortProjects('project_id')" style="cursor: pointer;">
+                                        项目编号 <i class="bi bi-chevron-expand sort-icon"></i>
+                                    </th>
+                                    <th class="sortable" data-sort="title" onclick="sortProjects('title')" style="cursor: pointer;">
+                                        项目名称 <i class="bi bi-chevron-expand sort-icon"></i>
+                                    </th>
+                                    <th width="100">数据类型</th>
+                                    <th width="100" class="sortable" data-sort="file_count" onclick="sortProjects('file_count')" style="cursor: pointer;">
+                                        文件数 <i class="bi bi-chevron-expand sort-icon"></i>
+                                    </th>
+                                    <th width="120">操作</th>
                                 </tr>
                             </thead>
                             <tbody id="project-list">
@@ -175,7 +181,7 @@
                     </div>
                 </div>
 
-                <!-- 新建项目表单 (两列布局) -->
+                <!-- 新建项目表单 (只包含项目编号和名称) -->
                 <div id="new-project-form">
                     <!-- 项目编号 (固定字段) -->
                     <div class="row g-2 mb-2">
@@ -193,11 +199,11 @@
                             <input type="text" class="form-control" id="new-project-title" placeholder="请输入项目名称">
                         </div>
                     </div>
-                    
-                    <!-- 动态元数据字段容器 -->
-                    <div id="dynamic-metadata-fields">
-                        <!-- 动态渲染的字段将放在这里 -->
-                    </div>
+                </div>
+
+                <!-- 动态元数据字段容器 (在两种模式下都可见) -->
+                <div id="dynamic-metadata-fields">
+                    <!-- 动态渲染的字段将放在这里 -->
                 </div>
 
                 <hr>
@@ -252,13 +258,19 @@
 <script>
     // 全局数据
     let downloadFolders = [];
-    let projects = [];
-    let currentFolder = null;
+    let importedProjects = [];
+    let currentProjectFiles = [];
     let selectedFiles = new Set();
+    
+    // 排序状态
+    let currentSort = {
+        field: 'created_at',
+        order: 'desc'  // desc, asc
+    };
 
     // ==================== 初始化 ====================
     $(document).ready(function() {
-        loadProjects();
+        loadImportedProjects();
         setupEventListeners();
     });
 
@@ -270,17 +282,38 @@
             if (mode === 'mode-new') {
                 $('#new-project-form').show();
                 $('#existing-project-form').hide();
+                loadMetadataFields(); // 新建项目模式：加载动态字段（multi_select）
             } else {
                 $('#new-project-form').hide();
                 $('#existing-project-form').show();
                 loadExistingProjects();
+                $('#dynamic-metadata-fields').html(''); // 清空字段区域
             }
         });
 
         // 数据类型切换
         $('input[name="data-type"]').change(function() {
             updateProjectIdPrefix();
-            loadMetadataFields(); // 重新加载元数据字段
+            // 重新加载元数据字段（根据当前模式）
+            const mode = $('input[name="project-mode"]:checked').attr('id');
+            if (mode === 'mode-new') {
+                loadMetadataFields(); // 新建项目模式
+            } else {
+                loadExistingProjects(); // 已有项目模式
+                $('#dynamic-metadata-fields').html('');
+            }
+        });
+
+        // 已有项目下拉框变更监听
+        $('#target-project').change(function() {
+            const projectId = $(this).val();
+            if (projectId) {
+                const dataType = $('input[name="data-type"]:checked').attr('id');
+                const projectType = dataType === 'type-raw' ? 'raw' : 'result';
+                loadExistingProjectFields(projectId, projectType);
+            } else {
+                $('#dynamic-metadata-fields').html('');
+            }
         });
     }
 
@@ -290,23 +323,22 @@
     function loadMetadataFields() {
         const dataType = $('input[name="data-type"]:checked').attr('id');
         const tableType = dataType === 'type-raw' ? 'raw' : 'result';
-        
+
         apiGet('/api/metadata/fields', { table: tableType }).then(function(res) {
             if (res.success && res.fields) {
                 // 过滤出可编辑字段（field_readonly=0）并按 field_seq 排序
                 const editableFields = res.fields
                     .filter(f => f.field_readonly === false || f.field_readonly === 0)
                     .sort((a, b) => a.field_seq - b.field_seq);
-                
-                // 排除前端已硬编码的前2个字段（raw_id, raw_title 或 results_id, results_title）
-                const dynamicFields = editableFields.slice(2);
-                
-                // 根据项目类型限制显示数量：
-                // 原始数据项目：显示排序前3-7号（共5个）
-                // 结果数据项目：显示排序前3-5号（共3个）
-                const maxFields = tableType === 'raw' ? 5 : 3;
-                metadataFields = dynamicFields.slice(0, maxFields);
-                
+
+                // 根据环境变量配置选择字段编号
+                const displayFieldSeqs = res.display_fields_new || [];
+
+                // 根据 field_seq 过滤字段
+                metadataFields = editableFields.filter(f =>
+                    displayFieldSeqs.includes(f.field_seq)
+                );
+
                 renderMetadataFields();
             } else {
                 metadataFields = [];
@@ -394,7 +426,7 @@
         
         const formData = {
             project_id: $('#new-project-id').val(),
-            project_title: $('#new-project-title').val(),
+            raw_title: $('#new-project-title').val(),
             data_type: isRaw ? 'raw' : 'result'
         };
         
@@ -422,7 +454,7 @@
         const errors = [];
         
         // 检查项目名称
-        if (!data.project_title) {
+        if (!data.raw_title) {
             errors.push('项目名称为必填字段');
         }
         
@@ -557,15 +589,17 @@
             projects.forEach(function(p, index) {
                 const dataTypeLabel = getDataTypeLabel(p.data_type || p.results_type);
                 const fileCount = p.raw_file_count || p.results_file_count || 0;
+                const projectTitle = p.title || p.raw_title || p.results_title || '-';
+                const projectId = p.raw_id || p.results_id || p.id;
                 html += `
                     <tr>
                         <td>${index + 1}</td>
-                        <td><code>${p.id || p.raw_id || p.results_id}</code></td>
-                        <td>${p.title || p.raw_title || p.results_title}</td>
+                        <td><code>${projectId}</code></td>
+                        <td>${projectTitle}</td>
                         <td><span class="badge bg-info">${dataTypeLabel}</span></td>
                         <td>${fileCount}</td>
                         <td>
-                            <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('${p.id || p.raw_id || p.results_id}')">
+                            <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('${projectId}')">
                                 <i class="bi bi-eye"></i> 查看
                             </button>
                         </td>
@@ -595,25 +629,106 @@
         return labels[type] || type || '未分类';
     }
 
-    // ==================== 项目加载 ====================
-    function loadProjects() {
-        // 先清空现有项目
-        projects = [];
+    // ==================== 项目加载（使用新API）====================
+    function loadImportedProjects() {
+        const type = $('#filter-project-type').val();
+        const ids = $('#filter-project-id').val().trim();
         
-        // 并发加载原始数据和结果数据项目
-        apiGet('/api/projects').then(function(res) {
+        const params = {};
+        if (type) params.file_project_type = type;
+        if (ids) params.file_project_ids = ids;
+        
+        // 添加排序参数
+        params.sort_field = currentSort.field;
+        params.sort_order = currentSort.order;
+        
+        apiGet('/api/files/imported-projects', params).then(function(res) {
             if (res.success && res.data) {
-                projects = res.data;
+                importedProjects = res.data;
+                renderProjectList();
+            } else {
+                importedProjects = [];
                 renderProjectList();
             }
+        }).catch(function() {
+            importedProjects = [];
+            renderProjectList();
         });
+    }
+
+    // ==================== 排序功能 ====================
+    function sortProjects(field) {
+        // 切换排序顺序
+        if (currentSort.field === field) {
+            currentSort.order = currentSort.order === 'desc' ? 'asc' : 'desc';
+        } else {
+            currentSort.field = field;
+            currentSort.order = 'desc';  // 新字段默认降序
+        }
         
-        apiGet('/api/bioresult-projects').then(function(res) {
-            if (res.success && res.projects) {
-                projects = projects.concat(res.projects);
-                renderProjectList();
+        // 更新表头显示
+        updateSortIndicators();
+        
+        // 重新加载数据
+        loadImportedProjects();
+    }
+
+    function updateSortIndicators() {
+        // 更新所有列头的排序图标
+        $('.sortable').each(function() {
+            const field = $(this).data('sort');
+            const icon = $(this).find('.sort-icon');
+            
+            if (field === currentSort.field) {
+                if (currentSort.order === 'desc') {
+                    icon.removeClass('bi-chevron-expand bi-caret-up-fill bi-caret-down-fill')
+                        .addClass('bi-caret-down-fill text-primary');
+                } else {
+                    icon.removeClass('bi-chevron-expand bi-caret-up-fill bi-caret-down-fill')
+                        .addClass('bi-caret-up-fill text-primary');
+                }
+            } else {
+                icon.removeClass('bi-chevron-expand bi-caret-up-fill bi-caret-down-fill')
+                    .addClass('bi-chevron-expand');
             }
         });
+    }
+
+    // ==================== 渲染函数 ====================
+    function renderProjectList() {
+        const tbody = $('#project-list');
+        $('#project-count').text(importedProjects.length + ' 个');
+        
+        if (importedProjects.length === 0) {
+            tbody.html(`
+                <tr>
+                    <td colspan="6" class="text-center py-4 text-muted">
+                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                        暂无已导入项目
+                    </td>
+                </tr>
+            `);
+        } else {
+            let html = '';
+            importedProjects.forEach(function(p, index) {
+                const projectTypeLabel = p.project_type === 'raw' ? '原始数据' : '结果数据';
+                html += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td><code>${p.project_id}</code></td>
+                        <td>${p.title || '-'}</td>
+                        <td><span class="badge bg-info">${projectTypeLabel}</span></td>
+                        <td>${p.file_count || 0}</td>
+                        <td>
+                            <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('${p.project_id}', '${p.project_type}')">
+                                <i class="bi bi-eye"></i> 查看
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.html(html);
+        }
     }
 
     function loadExistingProjects() {
@@ -623,15 +738,145 @@
         
         select.empty().append('<option value="">请选择项目...</option>');
         
-        const filteredProjects = projects.filter(function(p) {
-            if (type === 'raw') return p.raw_id;
-            return p.results_id;
+        // 使用新的 API 获取项目列表，格式为 "项目编号|项目标题"
+        apiGet('/api/projects/options', { table: type }).then(function(res) {
+            if (res.success && res.options) {
+                res.options.forEach(function(opt) {
+                    select.append(`<option value="${opt.value}">${opt.text}</option>`);
+                });
+                
+                // 如果有项目，自动选择第一个并加载字段
+                if (res.options.length > 0) {
+                    select.val(res.options[0].value).trigger('change');
+                } else {
+                    // 没有项目时清空字段区域
+                    $('#dynamic-metadata-fields').html('<p class="text-muted text-center py-3 mb-0">暂无可用项目，请先创建项目</p>');
+                }
+            }
+        }).catch(function() {
+            // 如果新API失败，使用旧的兼容方式
+            const filteredProjects = projects.filter(function(p) {
+                if (type === 'raw') return p.raw_id;
+                return p.results_id;
+            });
+            
+            filteredProjects.forEach(function(p) {
+                const id = p.raw_id || p.results_id;
+                const title = p.raw_title || p.results_title || '-';
+                select.append(`<option value="${id}">${id}|${title}</option>`);
+            });
+            
+            // 如果有项目，自动选择第一个并加载字段
+            if (filteredProjects.length > 0) {
+                const firstId = filteredProjects[0].raw_id || filteredProjects[0].results_id;
+                select.val(firstId).trigger('change');
+            }
         });
+    }
+
+    // 加载已有项目的元数据字段（用于编辑）
+    function loadExistingProjectFields(projectId, projectType) {
+        const container = $('#dynamic-metadata-fields');
         
-        filteredProjects.forEach(function(p) {
-            const id = p.raw_id || p.results_id;
-            const title = p.raw_title || p.results_title;
-            select.append(`<option value="${id}">${id} - ${title}</option>`);
+        if (!projectId) {
+            container.html('');
+            return;
+        }
+        
+        // 根据项目类型获取元数据
+        const apiPath = projectType === 'raw' 
+            ? '/api/projects/raw/' + projectId + '/metadata'
+            : '/api/projects/result/' + projectId + '/metadata';
+        
+        apiGet(apiPath).then(function(res) {
+            if (res.success && res.metadata) {
+                renderEditableMetadataFields(res.metadata, projectType);
+            } else {
+                container.html('<p class="text-muted text-center py-3 mb-0">无法加载项目元数据</p>');
+            }
+        }).catch(function() {
+            container.html('<p class="text-muted text-center py-3 mb-0">无法加载项目元数据</p>');
+        });
+    }
+
+    // 渲染可编辑的元数据字段（用于导入时修改）
+    function renderEditableMetadataFields(currentMetadata, projectType) {
+        const container = $('#dynamic-metadata-fields');
+        const tableType = projectType;
+
+        // 获取字段配置
+        apiGet('/api/metadata/fields', { table: tableType }).then(function(res) {
+            if (res.success && res.fields) {
+                // 过滤出可编辑字段（field_readonly=0）并按 field_seq 排序
+                const editableFields = res.fields
+                    .filter(f => f.field_readonly === false || f.field_readonly === 0)
+                    .sort((a, b) => a.field_seq - b.field_seq);
+
+                // 根据环境变量配置选择字段编号
+                const displayFieldSeqs = res.display_fields_exist || [];
+
+                // 根据 field_seq 过滤字段
+                const displayFields = editableFields.filter(f =>
+                    displayFieldSeqs.includes(f.field_seq)
+                );
+                
+                // 渲染字段（single_select 模式）
+                if (displayFields.length === 0) {
+                    container.html('<p class="text-muted text-center py-3 mb-0">暂无可编辑的元数据字段</p>');
+                    return;
+                }
+                
+                let html = '<div class="row g-2 mb-2">';
+
+                displayFields.forEach(function(field) {
+                    const fieldId = 'field-' + field.field_id;
+                    const currentValue = currentMetadata[field.field_id] || '';
+                    const fieldType = field.field_type || 'text';
+                    const fieldOptions = field.field_options || [];
+
+                    if (fieldType === 'select') {
+                        // 下拉框
+                        let optionsHtml = '<option value="">请选择...</option>';
+                        fieldOptions.forEach(function(opt) {
+                            const val = opt.value !== undefined ? opt.value : opt;
+                            const label = opt.label !== undefined ? opt.label : opt;
+                            const selected = val === currentValue ? 'selected' : '';
+                            optionsHtml += `<option value="${val}" ${selected}>${label}</option>`;
+                        });
+                        html += `
+                            <div class="col-md-6">
+                                <label class="form-label">${field.field_name}</label>
+                                <select class="form-select" id="${fieldId}" name="${field.field_id}">
+                                    ${optionsHtml}
+                                </select>
+                            </div>
+                        `;
+                    } else if (fieldType === 'textarea') {
+                        // 文本域
+                        html += `
+                            <div class="col-md-12">
+                                <label class="form-label">${field.field_name}</label>
+                                <textarea class="form-control" id="${fieldId}" name="${field.field_id}" rows="2">${currentValue}</textarea>
+                            </div>
+                        `;
+                    } else {
+                        // 输入框 (text)
+                        html += `
+                            <div class="col-md-6">
+                                <label class="form-label">${field.field_name}</label>
+                                <input type="text" class="form-control" id="${fieldId}" name="${field.field_id}" value="${currentValue}">
+                            </div>
+                        `;
+                    }
+                });
+
+                html += '</div>';
+                container.html(html);
+            } else {
+                container.html('<p class="text-muted text-center py-3 mb-0">无法加载字段配置</p>');
+            }
+        }).catch(function() {
+            container.html('<p class="text-muted text-center py-3 mb-0">无法加载字段配置</p>');
         });
     }
 
@@ -665,12 +910,14 @@
         let html = '';
         files.forEach(function(f, index) {
             const fileId = `file-${index}`;
+            const relativePath = f.relative_path || '';
             html += `
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="${fileId}" value="${f.name}" 
+                    <input class="form-check-input" type="checkbox" id="${fileId}" value="${f.name}"
                            onchange="toggleFileSelect(this)">
                     <label class="form-check-label" for="${fileId}">
                         ${f.name} <small class="text-muted">(${formatSize(f.size)})</small>
+                        ${relativePath ? `<br><small class="text-muted ms-1" style="font-size: 0.75rem;">${relativePath}</small>` : ''}
                     </label>
                 </div>
             `;
@@ -731,25 +978,43 @@
                     showToast('导入成功');
                     $('#import-modal').modal('hide');
                     scanDownloads();
-                    loadProjects();
+                    loadImportedProjects();
                 } else {
                     showToast(res.message || '导入失败', 'error');
                 }
             });
         } else {
             // 选择已有项目
-            requestData.project_id = $('#target-project').val();
-            if (!requestData.project_id) {
+            const projectId = $('#target-project').val();
+            if (!projectId) {
                 showToast('请选择项目', 'warning');
                 return;
             }
+            
+            requestData.project_id = projectId;
+            
+            // 收集 metadata_override（用户修改的字段值）
+            const metadata_override = {};
+            if (isRaw) {
+                const raw_type = $('#field-raw_type').val();
+                const raw_species = $('#field-raw_species').val();
+                const raw_tissue = $('#field-raw_tissue').val();
+                if (raw_type) metadata_override.raw_type = raw_type;
+                if (raw_species) metadata_override.raw_species = raw_species;
+                if (raw_tissue) metadata_override.raw_tissue = raw_tissue;
+            } else {
+                const results_type = $('#field-results_type').val();
+                if (results_type) metadata_override.results_type = results_type;
+            }
+            
+            requestData.metadata_override = metadata_override;
             
             apiPost('/api/import-download', requestData).then(function(res) {
                 if (res.success) {
                     showToast('导入成功');
                     $('#import-modal').modal('hide');
                     scanDownloads();
-                    loadProjects();
+                    loadImportedProjects();
                 } else {
                     showToast(res.message || '导入失败', 'error');
                 }
@@ -790,36 +1055,58 @@
         new bootstrap.Modal($('#detail-modal')).show();
     }
 
-    function showProjectDetail(projectId) {
-        apiGet('/api/projects/raw/' + projectId).then(function(res) {
-            if (res.success && res.project) {
-                const p = res.project;
+    // ==================== 项目详情弹窗 ====================
+    function showProjectDetail(projectId, projectType) {
+        apiGet('/api/files', { project_id: projectId }).then(function(res) {
+            if (res.success && res.files) {
+                currentProjectFiles = res.files;
                 const content = $('#detail-content');
 
                 let html = `
                     <div class="row mb-3">
-                        <div class="col-md-6"><strong>项目编号:</strong> ${p.raw_id}</div>
-                        <div class="col-md-6"><strong>数据类型:</strong> ${p.raw_type || '-'}</div>
+                        <div class="col-md-6"><strong>项目编号:</strong> ${projectId}</div>
+                        <div class="col-md-6"><strong>数据类型:</strong> ${projectType === 'raw' ? '原始数据' : '结果数据'}</div>
                     </div>
-                    <div class="mb-3"><strong>项目名称:</strong> ${p.raw_title || '-'}</div>
-                    <div class="mb-3"><strong>物种:</strong> ${p.raw_species || '-'}</div>
-                    ${p.raw_DOI ? `<div class="mb-3"><strong>DOI:</strong> ${p.raw_DOI}</div>` : ''}
-                    ${p.raw_description ? `<div class="mb-3"><strong>描述:</strong> ${p.raw_description}</div>` : ''}
+                    <div class="mb-3"><strong>文件数量:</strong> ${res.total || 0}</div>
                     <hr>
-                    <div class="mb-2"><strong>文件列表:</strong></div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="mb-0"><strong>文件列表:</strong></div>
+                        <div>
+                            <button type="button" class="btn btn-outline-danger btn-sm me-1" onclick="deleteSelectedFiles()">
+                                <i class="bi bi-trash"></i> 删除选中
+                            </button>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="downloadSelectedFiles()">
+                                <i class="bi bi-download me-1"></i>下载选中
+                            </button>
+                        </div>
+                    </div>
                     <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead><tr><th>文件名</th><th>大小</th><th><input type="checkbox" onchange="toggleAllProjectFiles(this)"></th></tr></thead>
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th><input type="checkbox" onchange="toggleAllProjectFiles(this)"></th>
+                                    <th>文件名</th>
+                                    <th>大小</th>
+                                    <th>类型</th>
+                                    <th>导入时间</th>
+                                </tr>
+                            </thead>
                             <tbody>
                 `;
 
-                (p.files || []).forEach(function(f) {
-                    html += `<tr>
-                        <td>${f.file_name}</td>
-                        <td>${formatSize(f.file_size)}</td>
-                        <td><input type="checkbox" class="project-file-check" value="${f.file_path}"></td>
-                    </tr>`;
-                });
+                if (res.files.length === 0) {
+                    html += `<tr><td colspan="5" class="text-center py-3 text-muted">暂无文件</td></tr>`;
+                } else {
+                    res.files.forEach(function(f) {
+                        html += `<tr>
+                            <td><input type="checkbox" class="project-file-check" value="${f.id}" data-filename="${f.file_name}"></td>
+                            <td>${f.file_name}</td>
+                            <td>${formatSize(f.file_size)}</td>
+                            <td><span class="badge bg-secondary">${f.file_type || '-'}</span></td>
+                            <td>${f.imported_at || '-'}</td>
+                        </tr>`;
+                    });
+                }
 
                 html += `
                             </tbody>
@@ -830,68 +1117,100 @@
                 content.html(html);
                 new bootstrap.Modal($('#detail-modal')).show();
             } else {
-                showToast(res.message || '获取项目详情失败', 'error');
+                showToast(res.message || '获取文件列表失败', 'error');
             }
         }).catch(function(err) {
-            showToast('获取项目详情失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+            showToast('获取文件列表失败: ' + (err.responseJSON?.message || err.statusText), 'error');
         });
     }
 
+    // ==================== 文件操作 ====================
     function toggleAllProjectFiles(checkbox) {
         $('.project-file-check').prop('checked', checkbox.checked);
     }
 
-    function downloadSelectedFiles() {
-        const selected = [];
+    function getSelectedFileIds() {
+        const ids = [];
         $('.project-file-check:checked').each(function() {
-            selected.push($(this).val());
+            ids.push(parseInt($(this).val()));
         });
+        return ids;
+    }
+
+    function getSelectedFileNames() {
+        const names = [];
+        $('.project-file-check:checked').each(function() {
+            names.push($(this).data('filename'));
+        });
+        return names;
+    }
+
+    function deleteSelectedFiles() {
+        const fileIds = getSelectedFileIds();
+        const fileNames = getSelectedFileNames();
         
-        if (selected.length === 0) {
+        if (fileIds.length === 0) {
+            showToast('请选择要删除的文件', 'warning');
+            return;
+        }
+        
+        // 确认删除
+        if (!confirm(`确定要删除选中的 ${fileIds.length} 个文件吗？\n文件将被移动到回收站。`)) {
+            return;
+        }
+        
+        apiDelete('/api/files', { file_ids: fileIds }).then(function(res) {
+            if (res.success) {
+                showToast(`成功删除 ${res.deleted_count} 个文件`, 'success');
+                $('#detail-modal').modal('hide');
+                loadImportedProjects();  // 刷新项目列表
+            } else {
+                showToast(res.message || '删除失败', 'error');
+            }
+        }).catch(function(err) {
+            showToast('删除失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+        });
+    }
+
+    function downloadSelectedFiles() {
+        const fileIds = getSelectedFileIds();
+        
+        if (fileIds.length === 0) {
             showToast('请选择要下载的文件', 'warning');
             return;
         }
         
-        showToast('下载功能开发中', 'info');
+        // 使用POST请求下载文件
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/api/files/download';
+        form.style.display = 'none';
+        
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'file_ids';
+        input.value = JSON.stringify(fileIds);
+        form.appendChild(input);
+        
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
     }
 
     // ==================== 筛选功能 ====================
     function applyFilter() {
-        const type = $('#filter-project-type').val();
-        const id = $('#filter-project-id').val().trim();
-        
-        let filtered = projects;
-        
-        if (type) {
-            if (type === 'raw') {
-                filtered = filtered.filter((p) => p.raw_id);
-            } else {
-                filtered = filtered.filter((p) => p.results_id);
-            }
-        }
-        
-        if (id) {
-            filtered = filtered.filter(function(p) {
-                const pid = p.raw_id || p.results_id || '';
-                return pid.toLowerCase().includes(id.toLowerCase());
-            });
-        }
-        
-        const originalProjects = projects;
-        projects = filtered;
-        renderProjectList();
-        projects = originalProjects; // 恢复
+        loadImportedProjects();
     }
 
     function resetFilter() {
         $('#filter-project-type').val('');
         $('#filter-project-id').val('');
-        loadProjects();
+        loadImportedProjects();
     }
 
     // ==================== 工具函数 ====================
     function refreshFileList() {
-        loadProjects();
+        loadImportedProjects();
         showToast('列表已刷新', 'success');
     }
 

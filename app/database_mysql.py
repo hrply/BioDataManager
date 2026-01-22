@@ -293,7 +293,7 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS file_record (
                     id              INT PRIMARY KEY AUTO_INCREMENT COMMENT '自增ID',
                     file_name       VARCHAR(255) NOT NULL COMMENT '文件名',
-                    file_path       VARCHAR(500) NOT NULL COMMENT '文件相对路径(相对于/bioraw)',
+                    file_path       VARCHAR(500) NOT NULL COMMENT '文件相对路径(相对于/bio)',
                     file_size       BIGINT NOT NULL COMMENT '文件大小(字节)',
                     file_type       VARCHAR(50) DEFAULT NULL COMMENT '文件类型扩展名',
                     file_project_type    ENUM('raw', 'result') NOT NULL COMMENT '所属项目类型',

@@ -244,7 +244,8 @@
         apiGet('/api/projects').then(function(res) {
             if (res.success && res.projects) {
                 res.projects.forEach(function(p) {
-                    $('#project-results_raw').append(`<option value="${p.raw_id}">${p.raw_id} - ${p.raw_title}</option>`);
+                    const rawTitle = p.raw_title || '-';
+                    $('#project-results_raw').append(`<option value="${p.raw_id}">${p.raw_id} - ${rawTitle}</option>`);
                     $('#filter-results_raw').append(`<option value="${p.raw_id}">${p.raw_id}</option>`);
                 });
             }

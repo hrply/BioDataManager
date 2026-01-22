@@ -110,7 +110,7 @@ def init_field_config(db, force=False):
             {"value": "Rattus norvegicus", "label": "大鼠"},
             {"value": "Others", "label": "其他"},
         ]), '2', 0),
-        ('raw_tissue', '组织来源', 'multi_select', 'raw', 0, 4, json.dumps([
+        ('raw_tissue', '组织来源', 'select', 'raw', 0, 4, json.dumps([
             {"value": "Not Specific", "label": "Not Specific (非单一组织)"},
             {"value": "Adipose tissue", "label": "Adipose tissue (脂肪组织)"},
             {"value": "Adrenal gland", "label": "Adrenal gland (肾上腺)"},

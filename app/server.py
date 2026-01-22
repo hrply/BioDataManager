@@ -27,10 +27,27 @@ from metadata_config_manager_mysql import MetadataConfigManager
 from citation_parser import CitationParser
 
 # 硬编码路径配置（数据库设计规范要求）
-BIORAW_BASE_DIR = Path("/bioraw")
-RAW_DATA_DIR = BIORAW_BASE_DIR / "rawdata"
+RAW_DATA_DIR = Path("/bio") / "rawdata"
 DOWNLOADS_DIR = Path("/bio") / "downloads"
 RESULTS_DIR = Path("/bio") / "results"
+
+# 动态元数据字段编号配置（从环境变量读取）
+def parse_field_config(env_prefix):
+    """解析字段编号配置，返回列表"""
+    env_key = f"{env_prefix}"
+    value = os.environ.get(env_key, '')
+    if value:
+        try:
+            return [int(x.strip()) for x in value.split(',') if x.strip()]
+        except ValueError:
+            return []
+    return []
+
+# 读取四个环境变量配置
+METADATA_FIELDS_NEW_RAW = parse_field_config('METADATA_FIELDS_NEW_RAW')
+METADATA_FIELDS_NEW_RESULT = parse_field_config('METADATA_FIELDS_NEW_RESULT')
+METADATA_FIELDS_EXIST_RAW = parse_field_config('METADATA_FIELDS_EXIST_RAW')
+METADATA_FIELDS_EXIST_RESULT = parse_field_config('METADATA_FIELDS_EXIST_RESULT')
 
 # Flask 应用配置
 app = Flask(__name__)
@@ -287,12 +304,104 @@ def api_get_projects():
         return jsonify({'success': False, 'message': str(e)})
 
 
-@app.route('/api/bioresult-projects')
-def api_get_bio_result_projects():
-    """获取结果项目列表（兼容旧版前端）"""
+@app.route('/api/projects/options')
+def api_get_project_options():
+    """获取项目下拉选项"""
+    table = request.args.get('table', 'raw')
     try:
-        projects = get_manager().get_all_result_projects()
-        return jsonify({'success': True, 'projects': projects})
+        if table == 'raw':
+            projects = get_manager().get_all_raw_projects()
+        elif table == 'result':
+            projects = get_manager().get_all_result_projects()
+        else:
+            return jsonify({'success': False, 'message': '无效的table类型'})
+        
+        # 格式化选项：项目编号|项目标题
+        options = []
+        for p in projects:
+            if table == 'raw':
+                project_id = p.get('raw_id')
+                title = p.get('raw_title', '')
+            else:
+                project_id = p.get('results_id')
+                title = p.get('results_title', '')
+            
+            if project_id:
+                options.append({
+                    'value': project_id,
+                    'text': f"{project_id}|{title}"
+                })
+        
+        return jsonify({'success': True, 'options': options})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/raw/<raw_id>/metadata')
+def api_get_raw_project_metadata(raw_id):
+    """获取原始数据项目元数据"""
+    try:
+        project = get_manager().get_raw_project_by_id(raw_id)
+        if not project:
+            return jsonify({'success': False, 'message': '项目不存在'})
+        
+        metadata = {
+            'raw_type': project.get('raw_type', ''),
+            'raw_species': project.get('raw_species', ''),
+            'raw_tissue': project.get('raw_tissue', '')
+        }
+        return jsonify({'success': True, 'metadata': metadata})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/raw/<raw_id>/metadata', methods=['POST'])
+def api_append_raw_project_metadata(raw_id):
+    """追加原始数据项目元数据字段值（去重）"""
+    try:
+        data = request.get_json()
+        field_id = data.get('field_id')
+        new_value = data.get('new_value')
+        
+        if not field_id or not new_value:
+            return jsonify({'success': False, 'message': '缺少field_id或new_value'})
+        
+        result = get_manager().append_field_value('raw_project', raw_id, field_id, new_value)
+        return jsonify({'success': True, 'new_value': result})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/result/<results_id>/metadata')
+def api_get_result_project_metadata(results_id):
+    """获取结果数据项目元数据"""
+    try:
+        project = get_manager().get_result_project_by_id(results_id)
+        if not project:
+            return jsonify({'success': False, 'message': '项目不存在'})
+        
+        metadata = {
+            'results_type': project.get('results_type', ''),
+            'results_raw': project.get('results_raw', '')
+        }
+        return jsonify({'success': True, 'metadata': metadata})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/projects/result/<results_id>/metadata', methods=['POST'])
+def api_append_result_project_metadata(results_id):
+    """追加结果数据项目元数据字段值（去重）"""
+    try:
+        data = request.get_json()
+        field_id = data.get('field_id')
+        new_value = data.get('new_value')
+        
+        if not field_id or not new_value:
+            return jsonify({'success': False, 'message': '缺少field_id或new_value'})
+        
+        result = get_manager().append_field_value('result_project', results_id, field_id, new_value)
+        return jsonify({'success': True, 'new_value': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -442,6 +551,7 @@ def api_import_download():
         files = data.get('files', [])
         project_info = data.get('project_info', {})
         folder_name = data.get('folder_name')
+        metadata_override = data.get('metadata_override', {})
         
         # 如果没有 project_id但有 project_info，则创建新项目
         if not project_id and project_info:
@@ -456,7 +566,7 @@ def api_import_download():
         
         if not project_id or not files:
             return jsonify({'success': False, 'message': '缺少参数'})
-        result = get_manager().import_download_files(project_id, files, folder_name)
+        result = get_manager().import_download_files(project_id, files, folder_name, metadata_override)
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -554,6 +664,243 @@ def api_directory_tree():
         return jsonify({'success': False, 'message': str(e)})
 
 
+# ==================== API 路由 - 文件管理（新）====================
+
+@app.route('/api/files/imported-projects')
+def api_get_imported_projects():
+    """获取已导入项目列表
+    
+    支持按项目类型和项目编号筛选
+    """
+    try:
+        db = get_db_manager()
+        
+        # 获取筛选参数
+        file_project_type = request.args.get('file_project_type')
+        file_project_ids = request.args.get('file_project_ids')
+        
+        # 解析项目编号列表（支持中英文逗号）
+        project_id_list = []
+        if file_project_ids:
+            project_id_list = [pid.strip() for pid in file_project_ids.replace('，', ',').split(',')]
+            project_id_list = [pid for pid in project_id_list if pid]
+        
+        # 查询 file_record 获取符合条件的项目
+        base_query = """
+            SELECT DISTINCT file_project_id, file_project_type 
+            FROM file_record 
+            WHERE 1=1
+        """
+        params = []
+        
+        if file_project_type:
+            base_query += " AND file_project_type = %s"
+            params.append(file_project_type)
+        
+        if project_id_list:
+            placeholders = ','.join(['%s'] * len(project_id_list))
+            base_query += f" AND file_project_id IN ({placeholders})"
+            params.extend(project_id_list)
+        
+        base_query += " ORDER BY file_project_id"
+        
+        records = db.query(base_query, params)
+        
+        # 根据 project_type 查询对应项目表
+        projects = []
+        for record in records:
+            proj_id = record[0]  # file_project_id
+            proj_type = record[1]  # file_project_type
+            
+            if proj_type == 'raw':
+                row = db.query_one("""
+                    SELECT raw_id, raw_title, created_at, raw_file_count 
+                    FROM raw_project WHERE raw_id = %s
+                """, (proj_id,))
+                if row:
+                    projects.append({
+                        'project_id': row[0],
+                        'project_type': 'raw',
+                        'title': row[1],
+                        'created_at': row[2].strftime('%Y-%m-%d %H:%M:%S') if row[2] else None,
+                        'file_count': row[3] or 0
+                    })
+            else:  # result
+                row = db.query_one("""
+                    SELECT results_id, results_title, created_at, results_file_count 
+                    FROM result_project WHERE results_id = %s
+                """, (proj_id,))
+                if row:
+                    projects.append({
+                        'project_id': row[0],
+                        'project_type': 'result',
+                        'title': row[1],
+                        'created_at': row[2].strftime('%Y-%m-%d %H:%M:%S') if row[2] else None,
+                        'file_count': row[3] or 0
+                    })
+        
+        return jsonify({
+            'success': True,
+            'data': projects,
+            'total': len(projects)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/files')
+def api_get_project_files():
+    """获取指定项目的文件列表
+    
+    Args:
+        project_id: 项目编号 (必填)
+    """
+    try:
+        db = get_db_manager()
+        
+        project_id = request.args.get('project_id')
+        if not project_id:
+            return jsonify({'success': False, 'message': '缺少项目编号'}), 400
+        
+        # 查询 file_record 获取文件列表
+        files = db.query("""
+            SELECT id, file_name, file_size, file_type, imported_at, file_project_type
+            FROM file_record 
+            WHERE file_project_id = %s
+            ORDER BY imported_at DESC
+        """, (project_id,))
+        
+        # 格式化数据
+        formatted_files = []
+        for f in files:
+            formatted_files.append({
+                'id': f[0],
+                'file_name': f[1],
+                'file_size': f[2],
+                'file_type': f[3],
+                'imported_at': f[4].strftime('%Y-%m-%d %H:%M:%S') if f[4] else None,
+                'project_type': f[5]
+            })
+        
+        return jsonify({
+            'success': True,
+            'project_id': project_id,
+            'files': formatted_files,
+            'total': len(formatted_files)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/files', methods=['DELETE'])
+def api_delete_files():
+    """删除文件记录并将源文件移动到回收站
+    
+    请求体:
+        file_ids: 文件ID列表
+    """
+    try:
+        db = get_db_manager()
+        
+        data = request.get_json()
+        file_ids = data.get('file_ids', [])
+        
+        if not file_ids:
+            return jsonify({'success': False, 'message': '缺少文件ID'}), 400
+        
+        # 查询要删除的文件信息
+        placeholders = ','.join(['%s'] * len(file_ids))
+        files = db.query(f"""
+            SELECT id, file_path, file_name 
+            FROM file_record 
+            WHERE id IN ({placeholders})
+        """, file_ids)
+        
+        if not files:
+            return jsonify({'success': False, 'message': '未找到要删除的文件'}), 404
+        
+        # 移动文件到回收站
+        recycle_base = Path('/bio') / 'recycle'
+        for f in files:
+            src_path = Path('/bio') / f['file_path'] / f['file_name']
+            dst_dir = recycle_base / f['file_path']
+            dst_path = dst_dir / f['file_name']
+            
+            # 创建目标目录
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 移动文件
+            if src_path.exists():
+                import shutil
+                shutil.move(str(src_path), str(dst_path))
+        
+        # 删除数据库记录
+        db.execute(f"""
+            DELETE FROM file_record 
+            WHERE id IN ({placeholders})
+        """, file_ids)
+        
+        return jsonify({
+            'success': True,
+            'message': '删除成功',
+            'deleted_count': len(files)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/files/download', methods=['POST'])
+def api_download_files():
+    """下载指定的文件，支持单文件和多文件打包下载
+    
+    请求体:
+        file_ids: 文件ID列表
+    """
+    try:
+        import io
+        import zipfile
+        from flask import send_file
+        
+        db = get_db_manager()
+        
+        data = request.get_json()
+        file_ids = data.get('file_ids', [])
+        
+        if not file_ids:
+            return jsonify({'success': False, 'message': '缺少文件ID'}), 400
+        
+        # 查询要下载的文件信息
+        placeholders = ','.join(['%s'] * len(file_ids))
+        files = db.query(f"""
+            SELECT id, file_path, file_name 
+            FROM file_record 
+            WHERE id IN ({placeholders})
+        """, file_ids)
+        
+        if not files:
+            return jsonify({'success': False, 'message': '未找到要下载的文件'}), 404
+        
+        # 创建 ZIP 文件
+        memory_file = io.BytesIO()
+        with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for f in files:
+                file_path = Path('/bio') / f['file_path'] / f['file_name']
+                if file_path.exists():
+                    zf.write(str(file_path), f['file_name'])
+        
+        memory_file.seek(0)
+        
+        # 返回 ZIP 文件
+        return send_file(
+            memory_file,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='download.zip'
+        )
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
 @app.route('/api/processed-data')
 def api_get_processed_data():
     """获取处理数据列表"""
@@ -572,6 +919,7 @@ def api_import_processed_file():
         project_id = data.get('project_id')
         file_path = data.get('file_path')
         project_info = data.get('project_info', {})
+        metadata_override = data.get('metadata_override', {})
         
         # 如果没有 project_id 但有 project_info，则创建新项目
         if not project_id and project_info:
@@ -584,7 +932,7 @@ def api_import_processed_file():
         
         if not project_id or not file_path:
             return jsonify({'success': False, 'message': '缺少参数'})
-        result = get_manager().import_processed_file(project_id, file_path)
+        result = get_manager().import_processed_file(project_id, file_path, metadata_override)
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -608,7 +956,21 @@ def api_get_metadata_fields():
     field_table = request.args.get('table', 'raw')
     try:
         config = get_config_manager().get_configs_by_table(field_table)
-        return jsonify({'success': True, 'fields': config})
+
+        # 获取显示字段编号配置
+        if field_table == 'raw':
+            display_fields_new = METADATA_FIELDS_NEW_RAW
+            display_fields_exist = METADATA_FIELDS_EXIST_RAW
+        else:
+            display_fields_new = METADATA_FIELDS_NEW_RESULT
+            display_fields_exist = METADATA_FIELDS_EXIST_RESULT
+
+        return jsonify({
+            'success': True,
+            'fields': config,
+            'display_fields_new': display_fields_new,
+            'display_fields_exist': display_fields_exist
+        })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
