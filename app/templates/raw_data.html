@@ -23,19 +23,19 @@
             <div class="row g-3" id="filter-form">
                 <div class="col-md-3">
                     <label class="form-label">数据类型</label>
-                    <select class="form-select" id="filter-type">
+                    <select class="form-select" id="filter-raw_type">
                         <option value="">全部</option>
                     </select>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">物种</label>
-                    <select class="form-select" id="filter-species">
+                    <select class="form-select" id="filter-raw_species">
                         <option value="">全部</option>
                     </select>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">组织来源</label>
-                    <select class="form-select" id="filter-tissue">
+                    <select class="form-select" id="filter-raw_tissue">
                         <option value="">全部</option>
                     </select>
                 </div>
@@ -550,78 +550,121 @@
                 const p = res.project;
                 $('#detail-title').text(`项目详情 - ${p.raw_id}`);
                 
-                let html = `
-                    <div class="row">
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">项目编号</label>
-                            <div class="fw-bold"><code>${p.raw_id}</code></div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">创建时间</label>
-                            <div>${p.created_at || '-'}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">数据类型</label>
-                            <div>${p.raw_type || '-'}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">物种</label>
-                            <div>${p.raw_species || '-'}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">组织来源</label>
-                            <div>${p.raw_tissue || '-'}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">DOI</label>
-                            <div>${p.raw_DOI || '-'}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">数据库编号</label>
-                            <div>${p.raw_db_id || '-'}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">作者</label>
-                            <div>${p.raw_author || '-'}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">期刊</label>
-                            <div>${p.raw_article || '-'}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">文件数量</label>
-                            <div>${p.raw_file_count || 0}</div>
-                        </div>
-                        <div class="col-md-6 mb-2">
-                            <label class="text-muted small">文件总大小</label>
-                            <div>${formatFileSize(p.raw_total_size)}</div>
-                        </div>
-                    </div>
-                `;
-                
-                if (p.raw_description) {
-                    html += `
-                        <div class="mt-3">
-                            <label class="text-muted small">描述</label>
-                            <div class="bg-light p-3 rounded">${p.raw_description}</div>
-                        </div>
-                    `;
-                }
-                
-                if (p.raw_keywords) {
-                    const keywords = (p.raw_keywords || '').replace(/，/g, ',').split(',').map(k => k.trim());
-                    html += `
-                        <div class="mt-3">
-                            <label class="text-muted small">关键词</label>
-                            <div>
-                                ${keywords.map(k => `<span class="badge bg-primary me-1">${k}</span>`).join('')}
+                // 动态获取字段配置并渲染
+                apiGet('/api/metadata/fields', { table: 'raw' }).then(function(fieldRes) {
+                    let html = `
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">项目编号</label>
+                                <div class="fw-bold"><code>${p.raw_id}</code></div>
                             </div>
-                        </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">创建时间</label>
+                                <div>${p.created_at || '-'}</div>
+                            </div>
                     `;
-                }
-                
-                $('#detail-content').html(html);
-                new bootstrap.Modal($('#detail-modal')).show();
+                    
+                    if (fieldRes.success && fieldRes.fields) {
+                        // 按 field_seq 排序字段
+                        const sortedFields = fieldRes.fields.sort((a, b) => a.field_seq - b.field_seq);
+                        
+                        sortedFields.forEach(function(field) {
+                            const fieldId = field.field_id;
+                            let fieldValue = p[fieldId] || '-';
+                            
+                            // 处理多值字段（逗号分隔）显示
+                            if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
+                                // 将 value 转换为 label 显示
+                                const values = fieldValue.split(',').map(v => v.trim());
+                                const labels = values.map(v => {
+                                    const opt = (field.field_options || []).find(o => o.value === v);
+                                    return opt ? opt.label : v;
+                                });
+                                fieldValue = labels.join(', ');
+                            }
+                            
+                            // 跳过已在上面显示的基础字段
+                            if (fieldId === 'raw_id' || fieldId === 'created_at') return;
+                            
+                            html += `
+                                <div class="col-md-6 mb-2">
+                                    <label class="text-muted small">${field.field_name}</label>
+                                    <div>${fieldValue}</div>
+                                </div>
+                            `;
+                        });
+                    } else {
+                        // 旧版兼容：如果没有字段配置，使用硬编码字段
+                        html += `
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">数据类型</label>
+                                <div>${p.raw_type || '-'}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">物种</label>
+                                <div>${p.raw_species || '-'}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">组织来源</label>
+                                <div>${p.raw_tissue || '-'}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">DOI</label>
+                                <div>${p.raw_DOI || '-'}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">数据库编号</label>
+                                <div>${p.raw_db_id || '-'}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">数据库链接</label>
+                                <div>${p.raw_db_link || '-'}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">作者</label>
+                                <div>${p.raw_author || '-'}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">期刊</label>
+                                <div>${p.raw_article || '-'}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">文件数量</label>
+                                <div>${p.raw_file_count || 0}</div>
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="text-muted small">文件总大小</label>
+                                <div>${formatFileSize(p.raw_total_size)}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    html += '</div>';  // end row
+                    
+                    if (p.raw_description) {
+                        html += `
+                            <div class="mt-3">
+                                <label class="text-muted small">描述</label>
+                                <div class="bg-light p-3 rounded">${p.raw_description}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (p.raw_keywords) {
+                        const keywords = (p.raw_keywords || '').replace(/，/g, ',').split(',').map(k => k.trim());
+                        html += `
+                            <div class="mt-3">
+                                <label class="text-muted small">关键词</label>
+                                <div>
+                                    ${keywords.map(k => `<span class="badge bg-primary me-1">${k}</span>`).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    $('#detail-content').html(html);
+                    new bootstrap.Modal($('#detail-modal')).show();
+                });
             } else {
                 showToast('获取项目详情失败', 'error');
             }
@@ -724,16 +767,16 @@
 
     // 重置筛选
     function resetFilter() {
-        $('#filter-type, #filter-species, #filter-tissue').val('');
+        $('#filter-raw_type, #filter-raw_species, #filter-raw_tissue').val('');
         currentPage = 1;
         loadProjects();
     }
 
     // 应用筛选
     function applyFilter() {
-        const type = $('#filter-type').val();
-        const species = $('#filter-species').val();
-        const tissue = $('#filter-tissue').val();
+        const type = $('#filter-raw_type').val();
+        const species = $('#filter-raw_species').val();
+        const tissue = $('#filter-raw_tissue').val();
         
         apiGet('/api/projects').then(function(res) {
             if (res.success) {

@@ -776,7 +776,7 @@ def api_get_project_files():
         
         # 查询 file_record 获取文件列表
         files = db.query("""
-            SELECT id, file_name, file_size, file_type, imported_at, file_project_type
+            SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at
             FROM file_record 
             WHERE file_project_id = %s
             ORDER BY imported_at DESC
@@ -788,10 +788,14 @@ def api_get_project_files():
             formatted_files.append({
                 'id': f[0],
                 'file_name': f[1],
-                'file_size': f[2],
-                'file_type': f[3],
-                'imported_at': f[4].strftime('%Y-%m-%d %H:%M:%S') if f[4] else None,
-                'project_type': f[5]
+                'file_path': f[2],
+                'file_property': f[3],
+                'file_size': f[4],
+                'file_type': f[5],
+                'project_type': f[6],
+                'file_project_id': f[7],
+                'file_project_ref_id': f[8],
+                'imported_at': f[9].strftime('%Y-%m-%d %H:%M:%S') if f[9] else None
             })
         
         return jsonify({

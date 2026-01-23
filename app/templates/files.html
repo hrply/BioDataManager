@@ -976,59 +976,52 @@
             
             requestData.project_id = projectId;
             
-            // 收集 metadata_override（用户修改的字段值）
+            // 收集 metadata_override（用户修改的字段值）- 动态收集，不硬编码字段名
             const metadata_override = {};
-            if (isRaw) {
-                const raw_type = $('#field-raw_type').val();
-                const raw_species = $('#field-raw_species').val();
-                const new_raw_tissue = $('#field-raw_tissue').val();
-                if (raw_type) metadata_override.raw_type = raw_type;
-                if (raw_species) metadata_override.raw_species = raw_species;
-                if (new_raw_tissue) {
-                    // raw_tissue 字段：需要合并已有值和新选择的值（多选）
-                    const current_raw_tissue = window.currentProjectRawTissue || '';
-                    let merged_tissue = '';
-                    if (current_raw_tissue) {
-                        const existingIds = current_raw_tissue.split(',').map(s => s.trim()).filter(s => s);
-                        const newIds = Array.isArray(new_raw_tissue) ? new_raw_tissue : [new_raw_tissue];
-                        const allIds = [...new Set([...existingIds, ...newIds])]; // 合并并去重
-                        merged_tissue = allIds.join(',');
+            
+            // 遍历 metadataFields 动态收集可编辑字段的值
+            metadataFields.forEach(function(field) {
+                const fieldId = 'metadata-' + field.field_id;
+                const fieldEl = $('#' + fieldId);
+                
+                if (fieldEl.length) {
+                    const fieldValue = fieldEl.val();
+                    
+                    // 对于特殊字段进行合并处理
+                    if (isRaw && field.field_id === 'raw_tissue') {
+                        // raw_tissue 字段：合并已有值和新选择的值（多选）
+                        const current_raw_tissue = window.currentProjectRawTissue || '';
+                        if (fieldValue && Array.isArray(fieldValue) && fieldValue.length > 0) {
+                            const existingIds = current_raw_tissue.split(',').map(s => s.trim()).filter(s => s);
+                            const newIds = fieldValue.map(s => s.trim()).filter(s => s);
+                            const allIds = [...new Set([...existingIds, ...newIds])];
+                            metadata_override[field.field_id] = allIds.join(',');
+                        } else if (current_raw_tissue) {
+                            metadata_override[field.field_id] = current_raw_tissue;
+                        }
+                    } else if (!isRaw && field.field_id === 'results_raw') {
+                        // results_raw 字段：合并已有值和新输入的值（支持逗号分隔）
+                        const current_results_raw = window.currentProjectResultsRaw || '';
+                        if (fieldValue && typeof fieldValue === 'string' && fieldValue.trim()) {
+                            const existingIds = current_results_raw.split(/[,，]/).map(s => s.trim()).filter(s => s);
+                            const newIds = fieldValue.split(/[,，]/).map(s => s.trim()).filter(s => s);
+                            const allIds = [...new Set([...existingIds, ...newIds])];
+                            metadata_override[field.field_id] = allIds.join(',');
+                        } else if (current_results_raw) {
+                            metadata_override[field.field_id] = current_results_raw;
+                        }
                     } else {
-                        merged_tissue = Array.isArray(new_raw_tissue) ? new_raw_tissue.join(',') : new_raw_tissue;
+                        // 其他字段直接收集值
+                        if (fieldValue) {
+                            if (Array.isArray(fieldValue)) {
+                                metadata_override[field.field_id] = fieldValue.join(',');
+                            } else {
+                                metadata_override[field.field_id] = fieldValue;
+                            }
+                        }
                     }
-                    metadata_override.raw_tissue = merged_tissue;
                 }
-            } else {
-                const results_type = $('#field-results_type').val();
-                
-                            // 动态获取 results_raw 字段值
-                            let new_results_raw = '';
-                            const resultsRawField = metadataFields.find(f => f.field_id === 'results_raw');
-                            if (resultsRawField) {
-                                // 元素ID格式是 metadata-{field_id}
-                                const fieldEl = $('#metadata-' + resultsRawField.field_id);
-                                new_results_raw = fieldEl.val()?.trim() || '';
-                            }                
-                if (results_type) metadata_override.results_type = results_type;
-                
-                // results_raw 字段：合并已有值和新输入的值（无论是否为空都传递）
-                const current_results_raw = window.currentProjectResultsRaw || '';
-                let merged_raw = '';
-                if (new_results_raw) {
-                    // 新值非空，合并已有值和新值
-                    const existingIds = current_results_raw.split(/[,，]/).map(s => s.trim()).filter(s => s);
-                    const newIds = new_results_raw.split(/[,，]/).map(s => s.trim()).filter(s => s);
-                    const allIds = [...new Set([...existingIds, ...newIds])];
-                    merged_raw = allIds.join(',');
-                } else if (current_results_raw) {
-                    // 新值为空但已有值存在，使用已有值
-                    merged_raw = current_results_raw;
-                } else {
-                    // 都为空，使用空字符串
-                    merged_raw = '';
-                }
-                metadata_override.results_raw = merged_raw;
-            }
+            });
             
             requestData.metadata_override = metadata_override;
             
@@ -1139,6 +1132,8 @@
                                 <tr>
                                     <th><input type="checkbox" onchange="toggleAllProjectFiles(this)"></th>
                                     <th>文件名</th>
+                                    <th>属性</th>
+                                    <th>关联项目</th>
                                     <th>大小</th>
                                     <th>类型</th>
                                     <th>导入时间</th>
@@ -1148,12 +1143,14 @@
                 `;
 
                 if (res.files.length === 0) {
-                    html += `<tr><td colspan="5" class="text-center py-3 text-muted">暂无文件</td></tr>`;
+                    html += `<tr><td colspan="7" class="text-center py-3 text-muted">暂无文件</td></tr>`;
                 } else {
                     res.files.forEach(function(f) {
                         html += `<tr>
                             <td><input type="checkbox" class="project-file-check" value="${f.id}" data-filename="${f.file_name}"></td>
                             <td>${f.file_name}</td>
+                            <td>${f.file_property || '-'}</td>
+                            <td>${f.file_project_ref_id || '-'}</td>
                             <td>${formatSize(f.file_size)}</td>
                             <td><span class="badge bg-secondary">${f.file_type || '-'}</span></td>
                             <td>${f.imported_at || '-'}</td>

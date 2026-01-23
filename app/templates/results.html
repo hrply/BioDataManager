@@ -579,58 +579,96 @@
 
         $('#detail-title').text(`项目详情 - ${project.results_id}`);
 
-        let html = `
-            <div class="row">
-                <div class="col-md-6 mb-2">
-                    <label class="text-muted small">项目编号</label>
-                    <div class="fw-bold"><code>${project.results_id}</code></div>
-                </div>
-                <div class="col-md-6 mb-2">
-                    <label class="text-muted small">创建时间</label>
-                    <div>${project.created_at || '-'}</div>
-                </div>
-                <div class="col-md-6 mb-2">
-                    <label class="text-muted small">结果类型</label>
-                    <div><span class="badge bg-success">${project.results_type || '-'}</span></div>
-                </div>
-                <div class="col-md-6 mb-2">
-                    <label class="text-muted small">关联原始数据</label>
-                    <div>${project.results_raw || '无关联'}</div>
-                </div>
-                <div class="col-md-6 mb-2">
-                    <label class="text-muted small">文件数量</label>
-                    <div>${project.results_file_count || 0}</div>
-                </div>
-                <div class="col-md-6 mb-2">
-                    <label class="text-muted small">文件总大小</label>
-                    <div>${formatFileSize(project.results_total_size)}</div>
-                </div>
-            </div>
-        `;
-
-        if (project.results_description) {
-            html += `
-                <div class="mt-3">
-                    <label class="text-muted small">描述</label>
-                    <div class="bg-light p-3 rounded">${project.results_description}</div>
-                </div>
-            `;
-        }
-
-        if (project.results_keywords) {
-            const keywords = (project.results_keywords || '').replace(/，/g, ',').split(',').map(k => k.trim());
-            html += `
-                <div class="mt-3">
-                    <label class="text-muted small">关键词</label>
-                    <div>
-                        ${keywords.map(k => `<span class="badge bg-success me-1">${k}</span>`).join('')}
+        // 动态获取字段配置并渲染
+        apiGet('/api/metadata/fields', { table: 'result' }).then(function(fieldRes) {
+            let html = `
+                <div class="row">
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">项目编号</label>
+                        <div class="fw-bold"><code>${project.results_id}</code></div>
                     </div>
-                </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">创建时间</label>
+                        <div>${project.created_at || '-'}</div>
+                    </div>
             `;
-        }
+            
+            if (fieldRes.success && fieldRes.fields) {
+                // 按 field_seq 排序字段
+                const sortedFields = fieldRes.fields.sort((a, b) => a.field_seq - b.field_seq);
+                
+                sortedFields.forEach(function(field) {
+                    const fieldId = field.field_id;
+                    let fieldValue = project[fieldId] || '-';
+                    
+                    // 处理多值字段显示
+                    if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
+                        const values = fieldValue.split(',').map(v => v.trim());
+                        const labels = values.map(v => {
+                            const opt = (field.field_options || []).find(o => o.value === v);
+                            return opt ? opt.label : v;
+                        });
+                        fieldValue = labels.join(', ');
+                    }
+                    
+                    // 跳过已在上面显示的基础字段
+                    if (fieldId === 'results_id' || fieldId === 'created_at') return;
+                    
+                    html += `
+                        <div class="col-md-6 mb-2">
+                            <label class="text-muted small">${field.field_name}</label>
+                            <div>${fieldValue}</div>
+                        </div>
+                    `;
+                });
+            } else {
+                // 旧版兼容
+                html += `
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">结果类型</label>
+                        <div><span class="badge bg-success">${project.results_type || '-'}</span></div>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">关联原始数据</label>
+                        <div>${project.results_raw || '无关联'}</div>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">文件数量</label>
+                        <div>${project.results_file_count || 0}</div>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="text-muted small">文件总大小</label>
+                        <div>${formatFileSize(project.results_total_size)}</div>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';  // end row
 
-        $('#detail-content').html(html);
-        new bootstrap.Modal($('#detail-modal')).show();
+            if (project.results_description) {
+                html += `
+                    <div class="mt-3">
+                        <label class="text-muted small">描述</label>
+                        <div class="bg-light p-3 rounded">${project.results_description}</div>
+                    </div>
+                `;
+            }
+
+            if (project.results_keywords) {
+                const keywords = (project.results_keywords || '').replace(/，/g, ',').split(',').map(k => k.trim());
+                html += `
+                    <div class="mt-3">
+                        <label class="text-muted small">关键词</label>
+                        <div>
+                            ${keywords.map(k => `<span class="badge bg-success me-1">${k}</span>`).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            $('#detail-content').html(html);
+            new bootstrap.Modal($('#detail-modal')).show();
+        });
     }
 
     // 删除项目

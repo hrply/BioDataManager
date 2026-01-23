@@ -235,9 +235,9 @@ class BioDataManager:
         )
 
         if row:
-            # 获取项目文件列表
+            # 获取项目文件列表（包含 file_property）
             files = self.db_manager.query("""
-                SELECT id, file_name, file_path, file_size, imported_at
+                SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at
                 FROM file_record
                 WHERE file_project_type = 'raw' AND file_project_id = %s
             """, (raw_id,))
@@ -248,8 +248,13 @@ class BioDataManager:
                     'id': f[0],
                     'file_name': f[1],
                     'file_path': f[2],
-                    'file_size': f[3],
-                    'imported_at': f[4].strftime('%Y-%m-%d %H:%M:%S') if f[4] else None
+                    'file_property': f[3],
+                    'file_size': f[4],
+                    'file_type': f[5],
+                    'file_project_type': f[6],
+                    'file_project_id': f[7],
+                    'file_project_ref_id': f[8],
+                    'imported_at': f[9].strftime('%Y-%m-%d %H:%M:%S') if f[9] else None
                 })
 
             return {
@@ -419,9 +424,9 @@ class BioDataManager:
         )
 
         if row:
-            # 获取项目文件列表
+            # 获取项目文件列表（包含 file_property）
             files = self.db_manager.query("""
-                SELECT id, file_name, file_path, file_size, imported_at
+                SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at
                 FROM file_record
                 WHERE file_project_type = 'result' AND file_project_id = %s
             """, (results_id,))
@@ -432,8 +437,13 @@ class BioDataManager:
                     'id': f[0],
                     'file_name': f[1],
                     'file_path': f[2],
-                    'file_size': f[3],
-                    'imported_at': f[4].strftime('%Y-%m-%d %H:%M:%S') if f[4] else None
+                    'file_property': f[3],
+                    'file_size': f[4],
+                    'file_type': f[5],
+                    'file_project_type': f[6],
+                    'file_project_id': f[7],
+                    'file_project_ref_id': f[8],
+                    'imported_at': f[9].strftime('%Y-%m-%d %H:%M:%S') if f[9] else None
                 })
 
             return {
@@ -511,7 +521,8 @@ class BioDataManager:
     def get_files_by_project(self, project_type: str, project_id: str) -> List[Dict]:
         """获取项目的文件列表"""
         files = self.db_manager.query("""
-            SELECT * FROM file_record 
+            SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at
+            FROM file_record 
             WHERE file_project_type = %s AND file_project_id = %s 
             ORDER BY imported_at DESC
         """, (project_type, project_id))
@@ -522,15 +533,17 @@ class BioDataManager:
                 'id': row[0],
                 'file_name': row[1],
                 'file_path': row[2],
-                'file_size': row[3],
-                'file_type': row[4],
-                'file_project_type': row[5],
-                'file_project_id': row[6],
-                'imported_at': row[7]
+                'file_property': row[3],
+                'file_size': row[4],
+                'file_type': row[5],
+                'file_project_type': row[6],
+                'file_project_id': row[7],
+                'file_project_ref_id': row[8],
+                'imported_at': row[9].strftime('%Y-%m-%d %H:%M:%S') if row[9] else None
             })
         return result
     
-    def add_file_record(self, project_type: str, project_id: str, file_path: Path, metadata: Dict = None) -> bool:
+    def add_file_record(self, project_type: str, project_id: str, file_path: Path, metadata: Dict = None, ref_project_id: str = None) -> Dict:
         """添加文件记录
         
         Args:
@@ -538,6 +551,10 @@ class BioDataManager:
             project_id: 项目编号
             file_path: 文件的完整路径
             metadata: 可选的元数据字典（如果已传入则使用，否则从数据库查询）
+            ref_project_id: 关联项目编号（结果文件关联的原始数据项目）
+            
+        Returns:
+            Dict: {'success': bool, 'message': str, 'is_duplicate': bool}
         """
         try:
             # file_name: 只包含文件名（不含路径）
@@ -548,6 +565,19 @@ class BioDataManager:
                 dir_path = file_path.parent.relative_to(Path('/bio'))
             except ValueError:
                 dir_path = file_path.parent
+            
+            # 检查重复文件（同一项目下同名文件）
+            existing = self.db_manager.query_one("""
+                SELECT id FROM file_record 
+                WHERE file_project_type = %s AND file_project_id = %s AND file_name = %s
+            """, (project_type, project_id, file_name))
+            
+            if existing:
+                return {
+                    'success': False,
+                    'message': f'存在同名文件 "{file_name}"，请修改元数据信息或文件名后重新导入',
+                    'is_duplicate': True
+                }
             
             # 生成 file_property
             project_metadata = metadata.copy() if metadata else {}
@@ -580,8 +610,8 @@ class BioDataManager:
             
             self.db_manager.execute("""
                 INSERT INTO file_record 
-                (file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 file_name,
                 str(dir_path),
@@ -589,7 +619,8 @@ class BioDataManager:
                 file_path.stat().st_size,
                 self._get_file_type(file_name),
                 project_type,
-                project_id
+                project_id,
+                ref_project_id
             ))
             
             # 更新项目文件计数和总大小
@@ -598,10 +629,18 @@ class BioDataManager:
             elif project_type == 'result':
                 self._update_result_file_count(project_id)
             
-            return True
+            return {
+                'success': True,
+                'message': '文件导入成功',
+                'is_duplicate': False
+            }
         except Exception as e:
             print(f"添加文件记录失败: {e}")
-            return False
+            return {
+                'success': False,
+                'message': f'导入失败: {str(e)}',
+                'is_duplicate': False
+            }
     
     def delete_file_record(self, file_id: int) -> bool:
         """删除文件记录"""
@@ -987,6 +1026,7 @@ class BioDataManager:
             source_folder = None
         
         import_count = 0
+        duplicate_count = 0
         for file_info in files:
             # 支持文件名(字符串)或文件对象(带path)
             if isinstance(file_info, str):
@@ -1000,13 +1040,24 @@ class BioDataManager:
             
             if file_path and file_path.exists():
                 dest_path = project_path / file_path.name
-                shutil.copy2(file_path, dest_path)
-                self.add_file_record('raw', project_id, dest_path)
-                import_count += 1
+                
+                # 检查重复文件
+                result = self.add_file_record('raw', project_id, dest_path)
+                if result.get('is_duplicate'):
+                    print(f"[INFO] 跳过重复文件: {file_name}")
+                    duplicate_count += 1
+                    continue
+                
+                if result.get('success'):
+                    shutil.copy2(file_path, dest_path)
+                    import_count += 1
+                else:
+                    print(f"[ERROR] 添加文件记录失败: {result.get('message')}")
         
         return {
             'success': True,
             'imported': import_count,
+            'duplicate': duplicate_count,
             'project_id': project_id,
             'storage_path': str(project_path)
         }
@@ -1058,6 +1109,7 @@ class BioDataManager:
             source_folder = None
         
         import_count = 0
+        duplicate_count = 0
         for file_info in files:
             # 支持文件名(字符串)或文件对象(带path)
             if isinstance(file_info, str):
@@ -1071,13 +1123,27 @@ class BioDataManager:
             
             if file_path and file_path.exists():
                 dest_path = project_path / file_path.name
-                shutil.copy2(file_path, dest_path)
-                self.add_file_record('result', project_id, dest_path)
-                import_count += 1
+                
+                # 传递 ref_project_id（results_raw 字段值）
+                ref_project_id = raw_project_ids if raw_project_ids else None
+                
+                # 检查重复文件
+                result = self.add_file_record('result', project_id, dest_path, ref_project_id=ref_project_id)
+                if result.get('is_duplicate'):
+                    print(f"[INFO] 跳过重复文件: {file_name}")
+                    duplicate_count += 1
+                    continue
+                
+                if result.get('success'):
+                    shutil.copy2(file_path, dest_path)
+                    import_count += 1
+                else:
+                    print(f"[ERROR] 添加文件记录失败: {result.get('message')}")
         
         return {
             'success': True,
             'imported': import_count,
+            'duplicate': duplicate_count,
             'project_id': project_id,
             'storage_path': str(project_path)
         }

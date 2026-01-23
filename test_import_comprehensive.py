@@ -46,9 +46,9 @@ def test_new_raw_import():
     print_section("请求数据")
     print(f"  项目ID: {project_data['project_id']}")
     print(f"  文件: {project_data['files']}")
-    print(f"  数据类型: {project_data['metadata']['raw_type']}")
-    print(f"  物种: {project_data['metadata']['raw_species']}")
-    print(f"  组织: {project_data['metadata']['raw_tissue']}")
+    print(f"  数据类型: {project_data['project_info']['raw_type']}")
+    print(f"  物种: {project_data['project_info']['raw_species']}")
+    print(f"  组织: {project_data['project_info']['raw_tissue']}")
 
     # 发送导入请求
     resp = requests.post(f"{BASE_URL}/api/import-download", json=project_data)
