@@ -96,15 +96,25 @@ class BioDataManager:
         
         优先从缩写映射表获取，如果没有则取全称的前3个字符
         如果全称少于3个字符，则用下划线填充到3位
+        如果是纯中文且找不到映射，则尝试从 label 映射获取，否则使用全拼首字母
         """
         if not full_name:
             return 'UNK'
+        
+        # 检查是否包含中文字符
+        has_chinese = any('\u4e00' <= c <= '\u9fff' for c in full_name)
         
         try:
             # 尝试从缩写映射表获取
             abbr = self.config_manager.get_abbr_mapping(field_id, full_name)
             if abbr:
                 return abbr
+            
+            # 如果是中文且没找到映射，尝试用 label 查找
+            if has_chinese:
+                abbr = self._get_abbr_by_label(field_id, full_name)
+                if abbr:
+                    return abbr
         except Exception:
             # 如果表不存在或查询失败，使用默认逻辑
             pass
@@ -113,11 +123,23 @@ class BioDataManager:
         abbr = ''.join(c for c in full_name[:3] if c.isalnum())
         if len(abbr) < 3:
             abbr = abbr.ljust(3, '_')
-        # 如果还是空（纯中文），取前3个字符
+        # 如果还是空（纯中文），使用拼音首字母或全称
         if not abbr:
-            abbr = full_name[:3]
-            if len(abbr) < 3:
-                abbr = abbr.ljust(3, '_')
+            if has_chinese:
+                # 中文值：尝试获取 label 并取首字母，如果没有则使用原值
+                label = self._get_option_label(field_id, full_name)
+                if label and label != full_name:
+                    abbr = ''.join(c for c in label[:3] if c.isalnum())
+                    if len(abbr) < 3:
+                        abbr = abbr.ljust(3, '_')
+                if not abbr:
+                    # 使用安全的字符（将中文转换为拼音首字母或下划线）
+                    abbr = ''.join(c if c.isalnum() else '_' for c in full_name[:6])
+                    abbr = abbr[:3].ljust(3, '_') if len(abbr) >= 3 else abbr.ljust(3, '_')
+            else:
+                abbr = full_name[:3]
+                if len(abbr) < 3:
+                    abbr = abbr.ljust(3, '_')
         return abbr
     
     def _get_file_type(self, filename: str) -> str:
@@ -582,8 +604,9 @@ class BioDataManager:
             # 生成 file_property
             project_metadata = metadata.copy() if metadata else {}
             
-            # 如果没有传入 metadata，从数据库查询
-            if not metadata:
+            # 如果没有传入 metadata（None），从数据库查询
+            # 注意：即使传入空字典 {} 也不查询数据库（表示使用默认值或无需覆盖）
+            if metadata is None:
                 if project_type == 'raw':
                     row = self.db_manager.query_one(
                         "SELECT raw_type, raw_species, raw_tissue FROM raw_project WHERE raw_id = %s",
@@ -790,6 +813,33 @@ class BioDataManager:
         if row and row[0]:
             return row[0]
         return option_value
+    
+    def _get_abbr_by_label(self, field_id: str, option_value: str) -> Optional[str]:
+        """根据 option_value 查找对应的 label，再从 abbr_mapping 获取缩写
+        
+        用于处理中文值的情况：当直接用 value 找不到缩写时，尝试通过 label 查找
+        
+        Args:
+            field_id: 字段ID
+            option_value: 选项值
+            
+        Returns:
+            缩写，如果未找到则返回 None
+        """
+        if not field_id or not option_value:
+            return None
+        
+        try:
+            # 先获取 option_value 对应的 label
+            label = self._get_option_label(field_id, option_value)
+            if label and label != option_value:
+                # 用 label 查找缩写
+                abbr = self.config_manager.get_abbr_mapping(field_id, label)
+                if abbr:
+                    return abbr
+        except Exception:
+            pass
+        return None
     
     def _build_file_property(self, project_type: str, project_id: str, metadata: Dict = None) -> str:
         """生成文件属性字符串
@@ -1004,16 +1054,43 @@ class BioDataManager:
         if not project:
             return {'success': False, 'message': '项目不存在'}
         
-        # 如果有 metadata_override，先追加字段值到 raw_project 表
+        # 获取字段配置，确定必填字段
+        raw_fields = self.config_manager.get_configs_by_table('raw') if self.config_manager else []
+        required_fields = {f['field_id'] for f in raw_fields if f.get('field_necessary') == 1}
+        
+        # 验证必填字段
+        if metadata_override:
+            missing_required = []
+            for field_id in required_fields:
+                if not metadata_override.get(field_id):
+                    missing_required.append(field_id)
+            if missing_required:
+                return {'success': False, 'message': f'必填字段不能为空: {", ".join(missing_required)}'}
+        
+        # 如果有 metadata_override 且包含有效值，先追加字段值到 raw_project 表
         if metadata_override:
             for field_id, value in metadata_override.items():
-                if value:
+                if value:  # 只追加有值的字段
                     self.append_field_value('raw_project', project_id, field_id, value)
         
-        # 构建路径：优先使用 metadata_override 的值，否则使用已有项目的值
-        raw_type = metadata_override.get('raw_type', '') if metadata_override else project.get('raw_type', '')
-        raw_species = metadata_override.get('raw_species', '') if metadata_override else project.get('raw_species', '')
-        raw_tissue = metadata_override.get('raw_tissue', '') if metadata_override else project.get('raw_tissue', '')
+        # 构建路径：使用用户输入的值，可选字段为空则跳过
+        # metadata_override 为 None 时使用数据库已有值（兼容旧逻辑）
+        # metadata_override 为 {} 或空值时，可选字段跳过
+        raw_type = metadata_override.get('raw_type') if metadata_override else project.get('raw_type', '')
+        raw_species = metadata_override.get('raw_species') if metadata_override else project.get('raw_species', '')
+        raw_tissue = metadata_override.get('raw_tissue') if metadata_override else project.get('raw_tissue', '')
+        
+        # 如果用户没有提供可选字段，不使用空值也不查询数据库
+        if metadata_override is not None:
+            # 用户填写了元数据，使用用户输入的值
+            raw_type = raw_type or ''
+            raw_species = raw_species or ''
+            raw_tissue = raw_tissue or ''  # 可选字段，允许为空
+        else:
+            # 用户没有填写元数据，使用数据库已有值
+            raw_type = raw_type or ''
+            raw_species = raw_species or ''
+            raw_tissue = raw_tissue or ''  # 可选字段，允许为空
         
         # 路径格式: {rawdata_dir}/{项目ID}/{raw_type}/{raw_species}/{raw_tissue}/
         project_path = self._build_raw_project_path(raw_type, raw_species, raw_tissue, project_id)
@@ -1041,15 +1118,20 @@ class BioDataManager:
             if file_path and file_path.exists():
                 dest_path = project_path / file_path.name
                 
-                # 检查重复文件
-                result = self.add_file_record('raw', project_id, dest_path)
+                # 先复制文件到目标路径（如果目标文件不存在）
+                if not dest_path.exists():
+                    try:
+                        shutil.copy2(file_path, dest_path)
+                    except Exception as e:
+                        print(f"[ERROR] 复制文件失败: {e}")
+                        continue
+                
+                # 再添加文件记录
+                result = self.add_file_record('raw', project_id, dest_path, metadata=metadata_override)
                 if result.get('is_duplicate'):
                     print(f"[INFO] 跳过重复文件: {file_name}")
                     duplicate_count += 1
-                    continue
-                
-                if result.get('success'):
-                    shutil.copy2(file_path, dest_path)
+                elif result.get('success'):
                     import_count += 1
                 else:
                     print(f"[ERROR] 添加文件记录失败: {result.get('message')}")
@@ -1068,28 +1150,39 @@ class BioDataManager:
         if not project:
             return {'success': False, 'message': '结果项目不存在'}
         
-        print(f"[DEBUG] _import_result_files: project_id={project_id}")
-        print(f"[DEBUG] _import_result_files: metadata_override={metadata_override}")
-        print(f"[DEBUG] _import_result_files: current project results_raw={project.get('results_raw', '')}")
+        # 获取字段配置，确定必填字段
+        result_fields = self.config_manager.get_configs_by_table('result') if self.config_manager else []
+        required_fields = {f['field_id'] for f in result_fields if f.get('field_necessary') == 1}
         
-        # 如果有 metadata_override，先追加字段值到 result_project 表
+        # 验证必填字段
+        if metadata_override:
+            missing_required = []
+            for field_id in required_fields:
+                if not metadata_override.get(field_id):
+                    missing_required.append(field_id)
+            if missing_required:
+                return {'success': False, 'message': f'必填字段不能为空: {", ".join(missing_required)}'}
+        
+        # 如果有 metadata_override 且包含有效值，先追加字段值到 result_project 表
         if metadata_override:
             for field_id, value in metadata_override.items():
-                if value:
-                    print(f"[DEBUG] append_field_value: {field_id} = {value}")
+                if value:  # 只追加有值的字段
                     self.append_field_value('result_project', project_id, field_id, value)
         
-        # 构建路径：优先使用 metadata_override 的值，否则使用已有项目的值
-        results_type = metadata_override.get('results_type', '') if metadata_override else project.get('results_type', '')
+        # 构建路径：使用用户输入的值，可选字段为空则跳过
+        # metadata_override 为 None 时使用数据库已有值（兼容旧逻辑）
+        # metadata_override 为 {} 或空值时，可选字段跳过
+        results_type = metadata_override.get('results_type') if metadata_override else project.get('results_type', '')
         
-        # 获取关联项目ID：优先使用 metadata_override，否则使用已有项目的值
+        # 获取关联项目ID
         raw_project_ids = ''
-        if metadata_override and metadata_override.get('results_raw'):
+        if metadata_override is not None and metadata_override.get('results_raw'):
+            # 用户填写了关联项目，使用用户输入的值
             raw_project_ids = self._parse_and_sort_project_ids(metadata_override['results_raw'])
-            print(f"[DEBUG] path will use raw_project_ids from metadata_override: {raw_project_ids}")
-        elif project.get('results_raw'):
+        elif metadata_override is None and project.get('results_raw'):
+            # 用户没有填写元数据，使用数据库已有值
             raw_project_ids = self._parse_and_sort_project_ids(project['results_raw'])
-            print(f"[DEBUG] path will use raw_project_ids from project: {raw_project_ids}")
+        # 如果 metadata_override 为 {} 或 results_raw 为空，跳过（不使用空值不查询）
         
         # 获取结果类型的缩写
         results_type_abbr = self.get_abbr('results_type', results_type) if results_type else ''
@@ -1127,15 +1220,20 @@ class BioDataManager:
                 # 传递 ref_project_id（results_raw 字段值）
                 ref_project_id = raw_project_ids if raw_project_ids else None
                 
-                # 检查重复文件
-                result = self.add_file_record('result', project_id, dest_path, ref_project_id=ref_project_id)
+                # 先复制文件到目标路径（如果目标文件不存在）
+                if not dest_path.exists():
+                    try:
+                        shutil.copy2(file_path, dest_path)
+                    except Exception as e:
+                        print(f"[ERROR] 复制文件失败: {e}")
+                        continue
+                
+                # 再添加文件记录
+                result = self.add_file_record('result', project_id, dest_path, metadata=metadata_override, ref_project_id=ref_project_id)
                 if result.get('is_duplicate'):
                     print(f"[INFO] 跳过重复文件: {file_name}")
                     duplicate_count += 1
-                    continue
-                
-                if result.get('success'):
-                    shutil.copy2(file_path, dest_path)
+                elif result.get('success'):
                     import_count += 1
                 else:
                     print(f"[ERROR] 添加文件记录失败: {result.get('message')}")

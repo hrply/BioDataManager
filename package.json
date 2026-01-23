@@ -23,6 +23,7 @@
   "homepage": "https://github.com/hrply/BioDataManager#readme",
   "dependencies": {
     "bootstrap-icons": "^1.13.1",
+    "esprima": "^4.0.1",
     "playwright": "^1.57.0"
   }
 }

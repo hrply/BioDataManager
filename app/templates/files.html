@@ -842,6 +842,9 @@
 
                 html += '</div>';
                 container.html(html);
+                
+                // 保存字段配置供 confirmImport 使用（关键修复：设置全局变量）
+                metadataFields = displayFields;
             } else {
                 container.html('<p class="text-muted text-center py-3 mb-0">无法加载字段配置</p>');
             }

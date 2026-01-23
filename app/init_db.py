@@ -44,6 +44,17 @@ def init_database(force=False):
         return False
     
     try:
+        # 强制重建模式：先清空所有表
+        if force:
+            print("清空所有数据表...")
+            db.execute("DELETE FROM files")
+            db.execute("DELETE FROM results")
+            db.execute("DELETE FROM raw_data")
+            db.execute("TRUNCATE TABLE field_config")
+            db.execute("TRUNCATE TABLE select_options")
+            db.execute("TRUNCATE TABLE abbr_mapping")
+            print("  已清空所有表")
+        
         # 创建表
         print("创建数据表...")
         db.create_tables()
@@ -163,13 +174,13 @@ def init_field_config(db, force=False):
             {"value": "Urinary bladder", "label": "Urinary bladder (膀胱)"},
             {"value": "Vagina", "label": "Vagina (阴道)"},
         ]), '2', 0),
-        ('raw_DOI', 'DOI', 'text', 'raw', 0, 5, None, '2', 0),
+        ('raw_DOI', 'DOI', 'link', 'raw', 0, 5, None, '2', 0),
         ('raw_db_id', '数据库编号', 'text', 'raw', 0, 6, None, '2', 0),
-        ('raw_db_link', '数据库链接', 'text', 'raw', 0, 7, None, '2', 0),
+        ('raw_db_link', '数据库链接', 'link', 'raw', 0, 7, None, '2', 0),
         ('raw_author', '作者', 'text', 'raw', 0, 8, None, '2', 0),
         ('raw_article', '文章标题', 'text', 'raw', 0, 9, None, '2', 0),
         ('raw_description', '描述', 'textarea', 'raw', 0, 10, None, '1', 0),
-        ('raw_keywords', '关键词', 'text', 'raw', 0, 11, None, '1', 0),
+        ('raw_keywords', '关键词', 'tags', 'raw', 0, 11, None, '1', 0),
         ('raw_file_count', '文件数量', 'text', 'raw', 0, 12, None, '2', 1),
         ('raw_total_size', '文件总大小', 'text', 'raw', 0, 13, None, '2', 1),
     ]
@@ -188,9 +199,11 @@ def init_field_config(db, force=False):
             {"value": "Dimension", "label": "降维分析"},
             {"value": "Trajectory", "label": "轨迹分析"},
         ]), '2', 0),
-        ('results_raw', '关联原始项目', 'text', 'result', 0, 3, None, '2', 0),
+        ('results_raw', '关联原始项目', 'tags', 'result', 0, 3, None, '1', 0),
         ('results_description', '描述', 'textarea', 'result', 0, 4, None, '1', 0),
-        ('results_keywords', '关键词', 'text', 'result', 0, 5, None, '1', 0),
+        ('results_keywords', '关键词', 'tags', 'result', 0, 5, None, '1', 0),
+        ('results_DOI', 'DOI', 'link', 'result', 0, 6, None, '2', 0),
+        ('results_db_link', '数据库链接', 'link', 'result', 0, 7, None, '2', 0),
         ('results_file_count', '文件数量', 'text', 'result', 0, 6, None, '2', 1),
         ('results_total_size', '文件总大小', 'text', 'result', 0, 7, None, '2', 1),
     ]

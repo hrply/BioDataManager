@@ -65,23 +65,40 @@
                     <thead class="table-light">
                         <tr>
                             <th>#</th>
-                            <th>项目编号</th>
+{%- if rowtitle_mapping %}
+{%- for field_seq, field_info in rowtitle_mapping.items()|sort %}
+                            <th>{{ field_info.field_name }}</th>
+{%- endfor %}
+{%- else %}
                             <th>数据类型</th>
                             <th>物种</th>
                             <th>组织来源</th>
+{%- endif %}
                             <th>创建时间</th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="project-list">
-                        {% if projects %}
-                        {% for p in projects %}
+                        {% if projects -%}
+                        {% for p in projects -%}
                         <tr>
                             <td>{{ loop.index }}</td>
-                            <td><code>{{ p.raw_id }}</code></td>
+{%- if rowtitle_mapping %}
+{%- for field_seq, field_info in rowtitle_mapping.items()|sort %}
+{%- set field_id = field_info.field_id %}
+{%- set options = field_info.options %}
+{%- set raw_value = p[field_id] or '' %}
+{%- if options and raw_value and raw_value in options %}
+                            <td>{{ options[raw_value] }}</td>
+{%- else %}
+                            <td>{{ raw_value or '-' }}</td>
+{%- endif %}
+{%- endfor %}
+{%- else %}
                             <td>{{ p.raw_type or '-' }}</td>
                             <td>{{ p.raw_species or '-' }}</td>
                             <td>{{ p.raw_tissue or '-' }}</td>
+{%- endif %}
                             <td>{{ p.created_at.strftime('%Y-%m-%d') if p.created_at else '-' }}</td>
                             <td>
                                 <button class="btn btn-outline-primary btn-sm me-1" onclick="viewDetail('{{ p.raw_id }}')" title="查看详情">
@@ -92,10 +109,11 @@
                                 </button>
                             </td>
                         </tr>
-                        {% endfor %}
-                        {% else %}
+                        {% endfor -%}
+                        {% else -%}
+                        {% set col_count = 3 + (rowtitle_mapping|length if rowtitle_mapping else 3) -%}
                         <tr>
-                            <td colspan="7" class="text-center py-4 text-muted">
+                            <td colspan="{{ col_count }}" class="text-center py-4 text-muted">
                                 <i class="bi bi-inbox fs-4 d-block mb-2"></i>
                                 暂无数据
                             </td>
@@ -223,6 +241,16 @@
     let projects = [];
     let currentPage = 1;
     const pageSize = 10;
+    // 从服务器端获取的列配置
+    const rowtitleMapping = {{ rowtitle_mapping|tojson if rowtitle_mapping else '{}' }};
+    
+    // 从 rowtitleMapping 提取字段列表用于分页渲染（动态列）
+    const displayFields = Object.entries(rowtitleMapping).map(([seq, info]) => ({
+        field_seq: parseInt(seq),
+        field_id: info.field_id,
+        field_name: info.field_name,
+        field_options: Object.entries(info.options || {}).map(([value, label]) => ({ value, label }))
+    })).sort((a, b) => a.field_seq - b.field_seq);
 
     // 格式化文件大小
     function formatFileSize(bytes) {
@@ -267,7 +295,20 @@
 
     // 加载项目列表
     function loadProjects() {
-        apiGet('/api/projects', {table: 'raw'}).then(function(res) {
+        // 先获取字段配置
+        apiGet('/api/metadata/fields', { table: 'raw' }).then(function(fieldRes) {
+            // 保存字段配置供列表和详情使用
+            window.rawFields = [];
+            if (fieldRes.success && fieldRes.fields) {
+                // 按 field_seq 排序，过滤可显示字段
+                window.rawFields = fieldRes.fields
+                    .filter(f => f.field_readonly === false || f.field_readonly === 0)
+                    .sort((a, b) => a.field_seq - b.field_seq);
+            }
+            
+            // 再加载项目数据
+            return apiGet('/api/projects', {table: 'raw'});
+        }).then(function(res) {
             if (res.success) {
                 projects = res.data || [];
                 renderProjects();
@@ -282,11 +323,15 @@
         const start = (currentPage - 1) * pageSize;
         const end = start + pageSize;
         const pageProjects = projects.slice(start, end);
+        const fields = displayFields.length > 0 ? displayFields : (window.rawFields || []);
         
+        // 计算动态列数（固定列: 序号 + 创建时间 + 操作按钮 = 3）
+        const dynamicColCount = 3 + fields.length;
+
         if (pageProjects.length === 0) {
             $('#project-list').html(`
                 <tr>
-                    <td colspan="7" class="text-center py-4 text-muted">
+                    <td colspan="${dynamicColCount}" class="text-center py-4 text-muted">
                         <i class="bi bi-inbox fs-4 d-block mb-2"></i>
                         暂无数据
                     </td>
@@ -295,23 +340,37 @@
         } else {
             let html = '';
             pageProjects.forEach(function(p, index) {
+                html += `<tr><td>${start + index + 1}</td>`;
+                
+                // 动态渲染字段列（根据 rowtitle_mapping 配置，从第2列开始）
+                fields.forEach(function(field) {
+                    const fieldId = field.field_id;
+                    let fieldValue = p[fieldId] || '-';
+                    
+                    // 处理多值字段显示
+                    if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
+                        const values = fieldValue.split(',').map(v => v.trim());
+                        const labels = values.map(v => {
+                            const opt = (field.field_options || []).find(o => o.value === v);
+                            return opt ? opt.label : v;
+                        });
+                        fieldValue = labels.join(', ');
+                    }
+                    
+                    html += `<td>${fieldValue}</td>`;
+                });
+                
                 html += `
-                    <tr>
-                        <td>${start + index + 1}</td>
-                        <td><code>${p.raw_id}</code></td>
-                        <td>${p.raw_type || '-'}</td>
-                        <td>${p.raw_species || '-'}</td>
-                        <td>${p.raw_tissue || '-'}</td>
-                        <td>${p.created_at ? p.created_at.substring(0, 10) : '-'}</td>
-                        <td>
-                            <button class="btn btn-outline-primary btn-sm me-1" onclick="viewDetail('${p.raw_id}')" title="查看详情">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                            <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('${p.raw_id}')" title="删除">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </td>
-                    </tr>
+                    <td>${p.created_at ? p.created_at.substring(0, 10) : '-'}</td>
+                    <td>
+                        <button class="btn btn-outline-primary btn-sm me-1" onclick="viewDetail('${p.raw_id}')" title="查看详情">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('${p.raw_id}')" title="删除">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                </tr>
                 `;
             });
             $('#project-list').html(html);
@@ -391,7 +450,6 @@
                 // 过滤 field_readonly=0 的字段，按 field_seq 排序
                 const fields = res.fields
                     .filter(f => f.field_readonly === false || f.field_readonly === 0)
-                    .filter(f => f.field_id !== 'raw_id' && f.field_id !== 'raw_title') // 排除已硬编码的字段
                     .sort((a, b) => a.field_seq - b.field_seq);
                 // 保存字段配置供 saveProject 使用
                 window.newProjectFields = fields;
@@ -552,17 +610,7 @@
                 
                 // 动态获取字段配置并渲染
                 apiGet('/api/metadata/fields', { table: 'raw' }).then(function(fieldRes) {
-                    let html = `
-                        <div class="row">
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">项目编号</label>
-                                <div class="fw-bold"><code>${p.raw_id}</code></div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">创建时间</label>
-                                <div>${p.created_at || '-'}</div>
-                            </div>
-                    `;
+                    let html = `<div class="row">`;
                     
                     if (fieldRes.success && fieldRes.fields) {
                         // 按 field_seq 排序字段
@@ -583,84 +631,46 @@
                                 fieldValue = labels.join(', ');
                             }
                             
-                            // 跳过已在上面显示的基础字段
-                            if (fieldId === 'raw_id' || fieldId === 'created_at') return;
+                            // 跳过创建时间（已由后端处理）
+                            if (fieldId === 'created_at') return;
                             
+                            // 根据 field_placeholder 配置确定布局
+                            // 1 = 单列 (col-md-12), 2 = 双列 (col-md-6)
+                            const isSingleColumn = field.field_placeholder === '1';
+                            const colClass = isSingleColumn ? 'col-md-12' : 'col-md-6';
+                            
+                                                // 根据 field_type 确定渲染方式
+                                                let displayValue = fieldValue;
+                                                
+                                                if (fieldValue !== '-' && field.field_type === 'textarea') {
+                                                    // textarea 类型用背景框渲染
+                                                    displayValue = `<div class="bg-light p-3 rounded">${fieldValue}</div>`;
+                                                } else if (fieldValue !== '-' && field.field_type === 'link') {
+                                                    // link 类型显示为超链接
+                                                    displayValue = `<a href="${fieldValue}" target="_blank" class="text-break">${fieldValue}</a>`;
+                                                } else if (fieldValue !== '-' && field.field_type === 'tags') {
+                                                    // tags 类型用标签云显示（逗号分隔）
+                                                    const tags = (fieldValue || '').replace(/[，,]/g, ',').split(',').map(k => k.trim()).filter(k => k);
+                                                    displayValue = tags.map(k => `<span class="badge bg-primary me-1 mb-1">${k}</span>`).join('');
+                                                } else if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
+                                                    // 下拉选择框的 value 转换为 label
+                                                    const values = fieldValue.split(',').map(v => v.trim());
+                                                    const labels = values.map(v => {
+                                                        const opt = (field.field_options || []).find(o => o.value === v);
+                                                        return opt ? opt.label : v;
+                                                    });
+                                                    displayValue = labels.join(', ');
+                                                }                            
                             html += `
-                                <div class="col-md-6 mb-2">
+                                <div class="${colClass} mb-2">
                                     <label class="text-muted small">${field.field_name}</label>
-                                    <div>${fieldValue}</div>
+                                    <div>${displayValue}</div>
                                 </div>
                             `;
                         });
-                    } else {
-                        // 旧版兼容：如果没有字段配置，使用硬编码字段
-                        html += `
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">数据类型</label>
-                                <div>${p.raw_type || '-'}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">物种</label>
-                                <div>${p.raw_species || '-'}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">组织来源</label>
-                                <div>${p.raw_tissue || '-'}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">DOI</label>
-                                <div>${p.raw_DOI || '-'}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">数据库编号</label>
-                                <div>${p.raw_db_id || '-'}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">数据库链接</label>
-                                <div>${p.raw_db_link || '-'}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">作者</label>
-                                <div>${p.raw_author || '-'}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">期刊</label>
-                                <div>${p.raw_article || '-'}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">文件数量</label>
-                                <div>${p.raw_file_count || 0}</div>
-                            </div>
-                            <div class="col-md-6 mb-2">
-                                <label class="text-muted small">文件总大小</label>
-                                <div>${formatFileSize(p.raw_total_size)}</div>
-                            </div>
-                        `;
                     }
                     
                     html += '</div>';  // end row
-                    
-                    if (p.raw_description) {
-                        html += `
-                            <div class="mt-3">
-                                <label class="text-muted small">描述</label>
-                                <div class="bg-light p-3 rounded">${p.raw_description}</div>
-                            </div>
-                        `;
-                    }
-                    
-                    if (p.raw_keywords) {
-                        const keywords = (p.raw_keywords || '').replace(/，/g, ',').split(',').map(k => k.trim());
-                        html += `
-                            <div class="mt-3">
-                                <label class="text-muted small">关键词</label>
-                                <div>
-                                    ${keywords.map(k => `<span class="badge bg-primary me-1">${k}</span>`).join('')}
-                                </div>
-                            </div>
-                        `;
-                    }
                     
                     $('#detail-content').html(html);
                     new bootstrap.Modal($('#detail-modal')).show();

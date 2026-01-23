@@ -43,11 +43,13 @@ def parse_field_config(env_prefix):
             return []
     return []
 
-# 读取四个环境变量配置
+# 读取五个环境变量配置
 METADATA_FIELDS_NEW_RAW = parse_field_config('METADATA_FIELDS_NEW_RAW')
 METADATA_FIELDS_NEW_RESULT = parse_field_config('METADATA_FIELDS_NEW_RESULT')
 METADATA_FIELDS_EXIST_RAW = parse_field_config('METADATA_FIELDS_EXIST_RAW')
 METADATA_FIELDS_EXIST_RESULT = parse_field_config('METADATA_FIELDS_EXIST_RESULT')
+METADATA_PROJECT_ROWTITLE_RAW = parse_field_config('METADATA_PROJECT_ROWTITLE_RAW')
+METADATA_PROJECT_ROWTITLE_RESULT = parse_field_config('METADATA_PROJECT_ROWTITLE_RESULT')
 
 # Flask 应用配置
 app = Flask(__name__)
@@ -62,14 +64,26 @@ def get_db_manager():
     """获取数据库管理器，延迟初始化"""
     global _db_manager
     if _db_manager is None:
-        _db_manager = DatabaseManager()
+        try:
+            _db_manager = DatabaseManager()
+        except Exception as e:
+            print(f"警告: 数据库管理器初始化失败: {e}")
+            _db_manager = None
     return _db_manager
 
 def get_config_manager():
     """获取配置管理器，延迟初始化"""
     global _config_manager
     if _config_manager is None:
-        _config_manager = MetadataConfigManager(get_db_manager())
+        try:
+            db_mgr = get_db_manager()
+            if db_mgr:
+                _config_manager = MetadataConfigManager(db_mgr)
+            else:
+                print("警告: 无法获取数据库管理器，配置管理器初始化跳过")
+        except Exception as e:
+            print(f"警告: 配置管理器初始化失败: {e}")
+            _config_manager = None
     return _config_manager
 
 def get_manager():
@@ -77,11 +91,51 @@ def get_manager():
     global _manager
     if _manager is None:
         try:
-            _manager = BioDataManager(get_db_manager(), get_config_manager())
+            db_mgr = get_db_manager()
+            config_mgr = get_config_manager()
+            if db_mgr and config_mgr:
+                _manager = BioDataManager(db_mgr, config_mgr)
+            else:
+                print("警告: 无法获取数据库或配置管理器，业务管理器初始化跳过")
         except Exception as e:
             print(f"警告: 业务管理器初始化失败: {e}")
             _manager = None
     return _manager
+
+def build_rowtitle_mapping(fields: list, rowtitle_config: list) -> dict:
+    """根据 field_seq 配置构建字段映射，用于项目列表动态列渲染
+    
+    Args:
+        fields: 字段配置列表
+        rowtitle_config: 环境变量配置 field_seq 列表
+        
+    Returns:
+        dict: {field_seq: {'field_id': str, 'field_name': str, 'options': dict}}
+    """
+    if not rowtitle_config or not fields:
+        return {}
+    
+    import json
+    mapping = {}
+    for field in fields:
+        field_seq = field.get('field_seq')
+        if field_seq in rowtitle_config:
+            field_options = field.get('field_options')
+            options_dict = {}
+            if field_options:
+                try:
+                    options_list = json.loads(field_options)
+                    for opt in options_list:
+                        if isinstance(opt, dict) and 'value' in opt and 'label' in opt:
+                            options_dict[opt['value']] = opt['label']
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            mapping[field_seq] = {
+                'field_id': field.get('field_id', ''),
+                'field_name': field.get('field_name', ''),
+                'options': options_dict
+            }
+    return mapping
 
 # ==================== 异步任务管理 ====================
 
@@ -157,26 +211,40 @@ def index():
 def raw_data():
     """原始数据页面"""
     projects = []
+    rowtitle_mapping = {}
     try:
         mgr = get_manager()
         if mgr:
             projects = mgr.get_all_raw_projects()
+        config_mgr = get_config_manager()
+        if config_mgr:
+            raw_fields = config_mgr.get_configs_by_table('raw')
+            rowtitle_mapping = build_rowtitle_mapping(raw_fields, METADATA_PROJECT_ROWTITLE_RAW)
     except Exception as e:
         print(f"获取原始数据项目列表失败: {e}")
-    return render_template('raw_data.html', projects=projects)
+        # 即使失败也返回页面，使用空数据
+    return render_template('raw_data.html', projects=projects,
+                           rowtitle_mapping=rowtitle_mapping)
 
 
 @app.route('/results')
 def results():
     """结果管理页面"""
     bioresult_projects = []
+    rowtitle_mapping = {}
     try:
         mgr = get_manager()
         if mgr:
             bioresult_projects = mgr.get_all_result_projects()
+        config_mgr = get_config_manager()
+        if config_mgr:
+            result_fields = config_mgr.get_configs_by_table('result')
+            rowtitle_mapping = build_rowtitle_mapping(result_fields, METADATA_PROJECT_ROWTITLE_RESULT)
     except Exception as e:
         print(f"获取结果项目列表失败: {e}")
-    return render_template('results.html', bioresult_projects=bioresult_projects)
+        # 即使失败也返回页面，使用空数据
+    return render_template('results.html', bioresult_projects=bioresult_projects,
+                           rowtitle_mapping=rowtitle_mapping)
 
 
 @app.route('/files')
