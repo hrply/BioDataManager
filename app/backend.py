@@ -20,6 +20,17 @@ from database_mysql import DatabaseManager
 from metadata_config_manager_mysql import MetadataConfigManager
 
 
+def _format_datetime(value, fmt='%Y-%m-%d %H:%M:%S') -> str:
+    """安全格式化时间字段"""
+    if not value or value == 0:
+        return ''
+    if isinstance(value, str):
+        return value[:19] if len(value) >= 19 else value
+    if hasattr(value, 'strftime'):
+        return value.strftime(fmt)
+    return ''
+
+
 class BioDataManager:
     """生物数据管理器"""
     
@@ -242,8 +253,8 @@ class BioDataManager:
                 'raw_keywords': row[12],
                 'raw_file_count': row[13],
                 'raw_total_size': row[14],
-                'created_at': row[15],
-                'updated_at': row[16]
+                'created_at': _format_datetime(row[15]),
+                'updated_at': _format_datetime(row[16])
             }
             result.append(project)
         
@@ -295,8 +306,8 @@ class BioDataManager:
                 'raw_keywords': row[12],
                 'raw_file_count': row[13],
                 'raw_total_size': row[14],
-                'created_at': row[15],
-                'updated_at': row[16],
+                'created_at': _format_datetime(row[15]),
+                'updated_at': _format_datetime(row[16]),
                 'files': file_list
             }
         return None
@@ -431,8 +442,8 @@ class BioDataManager:
                 'results_keywords': row[6],
                 'results_file_count': row[7],
                 'results_total_size': row[8],
-                'created_at': row[9],
-                'updated_at': row[10]
+                'created_at': _format_datetime(row[9]),
+                'updated_at': _format_datetime(row[10])
             }
             result.append(project)
         
@@ -478,8 +489,8 @@ class BioDataManager:
                 'results_keywords': row[6],
                 'results_file_count': row[7],
                 'results_total_size': row[8],
-                'created_at': row[9],
-                'updated_at': row[10],
+                'created_at': _format_datetime(row[9]),
+                'updated_at': _format_datetime(row[10]),
                 'files': file_list
             }
         return None
@@ -604,19 +615,20 @@ class BioDataManager:
             # 生成 file_property
             project_metadata = metadata.copy() if metadata else {}
             
-            # 如果没有传入 metadata（None），从数据库查询
-            # 注意：即使传入空字典 {} 也不查询数据库（表示使用默认值或无需覆盖）
-            if metadata is None:
+            # 如果没有传入 metadata（None）或 metadata 不完整，从数据库查询
+            # 只有当 metadata 包含所有必要字段时才使用，否则从数据库查询
+            if not metadata or not self._has_required_metadata(project_type, metadata):
                 if project_type == 'raw':
                     row = self.db_manager.query_one(
                         "SELECT raw_type, raw_species, raw_tissue FROM raw_project WHERE raw_id = %s",
                         (project_id,)
                     )
                     if row:
+                        # 合并数据库值和传入的 metadata（传入的优先）
                         project_metadata = {
-                            'raw_type': row[0] or '',
-                            'raw_species': row[1] or '',
-                            'raw_tissue': row[2] or ''
+                            'raw_type': metadata.get('raw_type', row[0]) if metadata else row[0],
+                            'raw_species': metadata.get('raw_species', row[1]) if metadata else row[1],
+                            'raw_tissue': metadata.get('raw_tissue', row[2]) if metadata else row[2]
                         }
                 else:
                     row = self.db_manager.query_one(
@@ -624,9 +636,10 @@ class BioDataManager:
                         (project_id,)
                     )
                     if row:
+                        # 合并数据库值和传入的 metadata（传入的优先）
                         project_metadata = {
-                            'results_type': row[0] or '',
-                            'results_raw': row[1] or ''
+                            'results_type': metadata.get('results_type', row[0]) if metadata else row[0],
+                            'results_raw': metadata.get('results_raw', row[1]) if metadata else row[1]
                         }
             
             file_property = self._build_file_property(project_type, project_id, project_metadata)
@@ -840,6 +853,17 @@ class BioDataManager:
         except Exception:
             pass
         return None
+    
+    def _has_required_metadata(self, project_type: str, metadata: Dict) -> bool:
+        """检查 metadata 是否包含必要的字段（非空值）"""
+        if not metadata:
+            return False
+        if project_type == 'raw':
+            # 原始数据至少需要 raw_type 和 raw_species 才能生成 file_property
+            return bool(metadata.get('raw_type') and metadata.get('raw_species'))
+        else:
+            # 结果数据至少需要 results_type 才能生成 file_property
+            return bool(metadata.get('results_type'))
     
     def _build_file_property(self, project_type: str, project_id: str, metadata: Dict = None) -> str:
         """生成文件属性字符串
@@ -1058,14 +1082,21 @@ class BioDataManager:
         raw_fields = self.config_manager.get_configs_by_table('raw') if self.config_manager else []
         required_fields = {f['field_id'] for f in raw_fields if f.get('field_necessary') == 1}
         
-        # 验证必填字段
+        # 项目级必填字段：这些字段在创建项目时设置，导入到已有项目时不需要在 metadata_override 中提供
+        project_level_required_fields = {'raw_id', 'raw_title'}
+        
+        # 验证必填字段 - 导入至已有项目时：
+        # 1. 跳过项目级必填字段（已在数据库中）
+        # 2. 只验证用户实际提供的字段（metadata_override 中包含的字段）
+        # 3. 对于用户未提供的字段，使用数据库中的现有值
         if metadata_override:
-            missing_required = []
-            for field_id in required_fields:
-                if not metadata_override.get(field_id):
-                    missing_required.append(field_id)
-            if missing_required:
-                return {'success': False, 'message': f'必填字段不能为空: {", ".join(missing_required)}'}
+            for field_id, value in metadata_override.items():
+                # 跳过项目级必填字段（不需要验证）
+                if field_id in project_level_required_fields:
+                    continue
+                # 只验证必填字段
+                if field_id in required_fields and not value:
+                    return {'success': False, 'message': f'必填字段不能为空: {field_id}'}
         
         # 如果有 metadata_override 且包含有效值，先追加字段值到 raw_project 表
         if metadata_override:
@@ -1154,14 +1185,21 @@ class BioDataManager:
         result_fields = self.config_manager.get_configs_by_table('result') if self.config_manager else []
         required_fields = {f['field_id'] for f in result_fields if f.get('field_necessary') == 1}
         
-        # 验证必填字段
+        # 项目级必填字段：这些字段在创建项目时设置，导入到已有项目时不需要在 metadata_override 中提供
+        project_level_required_fields = {'result_id', 'result_title'}
+        
+        # 验证必填字段 - 导入至已有项目时：
+        # 1. 跳过项目级必填字段（已在数据库中）
+        # 2. 只验证用户实际提供的字段（metadata_override 中包含的字段）
+        # 3. 对于用户未提供的字段，使用数据库中的现有值
         if metadata_override:
-            missing_required = []
-            for field_id in required_fields:
-                if not metadata_override.get(field_id):
-                    missing_required.append(field_id)
-            if missing_required:
-                return {'success': False, 'message': f'必填字段不能为空: {", ".join(missing_required)}'}
+            for field_id, value in metadata_override.items():
+                # 跳过项目级必填字段（不需要验证）
+                if field_id in project_level_required_fields:
+                    continue
+                # 只验证必填字段
+                if field_id in required_fields and not value:
+                    return {'success': False, 'message': f'必填字段不能为空: {field_id}'}
         
         # 如果有 metadata_override 且包含有效值，先追加字段值到 result_project 表
         if metadata_override:

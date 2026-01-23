@@ -87,6 +87,64 @@ license: MIT
 - fix-verification 修复前 → issue-analysis 确认根因
 - loop-management 统计时 → issue-analysis 结果作为输入
 
+## 📄 分析报告输出
+
+### 分析报告模板
+
+```markdown
+# 问题分析报告
+
+## 基本信息
+- 分析时间: YYYY-MM-DD HH:mm:ss
+- 问题ID: ISSUE_001
+- 问题页面: results.html
+- 问题层级: 结果层
+
+## 问题分类
+- 优先级: P1
+- 影响范围: 中等
+- 影响页面: results.html
+
+## 根因分析
+- 问题现象: created_at.substring 报错
+- 问题根因: created_at 是整数类型，非字符串
+- 代码位置: app/templates/results.html:707
+
+## 影响评估
+- 影响功能: 结果管理列表渲染
+- 影响用户数: 所有访问 results 页面的用户
+- 数据影响: 无
+
+## 修复建议
+- 优先级: 立即修复
+- 建议方案: 后端格式化时间字段为字符串
+- 预计工时: 0.5h
+```
+
+### 输出位置
+
+分析报告自动保存到 `.test/plans/analysis_YYYYMMDD_问题ID.md`
+
+## 📝 变更日志关联
+
+问题分析完成后，问题信息会关联到后续的代码修订记录：
+
+```log
+#========================================
+# 代码修订记录
+#========================================
+时间: YYYY-MM-DD HH:mm:ss
+操作: 修改
+文件: app/backend.py
+行号: 20-30
+变更类型: 功能修复
+
+关联问题: ISSUE_001
+分析结果: created_at 类型转换问题
+修复方案: 添加_format_datetime辅助函数
+#========================================
+```
+
 ---
 
 ## 环境说明

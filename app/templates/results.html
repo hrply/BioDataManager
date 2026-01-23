@@ -93,7 +93,7 @@
                             <td><span class="badge bg-success">{{ p.results_type or '-' }}</span></td>
                             <td>{{ p.results_raw or '-' }}</td>
 {%- endif %}
-                            <td>{{ p.created_at.strftime('%Y-%m-%d') if p.created_at else '-' }}</td>
+                            <td>{{ p.created_at[:10] if p.created_at is string and p.created_at|length > 10 else (p.created_at if p.created_at else '-') }}</td>
                             <td>
                                 <button class="btn btn-outline-success btn-sm me-1" onclick="viewDetail('{{ p.results_id }}')" title="查看详情">
                                     <i class="bi bi-eye"></i>
@@ -333,8 +333,19 @@
                     html += `<td>${fieldValue}</td>`;
                 });
                 
+                // 修复created_at处理，确保处理字符串和日期对象
+                const createdAtValue = p.created_at;
+                let createdAtDisplay = '-';
+                if (createdAtValue) {
+                    if (typeof createdAtValue === 'string' && createdAtValue.length >= 10) {
+                        createdAtDisplay = createdAtValue.substring(0, 10);
+                    } else if (typeof createdAtValue === 'object' && createdAtValue.date) {
+                        createdAtDisplay = createdAtValue.date.substring(0, 10);
+                    }
+                }
+                
                 html += `
-                    <td>${p.created_at ? p.created_at.substring(0, 10) : '-'}</td>
+                    <td>${createdAtDisplay}</td>
                     <td>
                         <button class="btn btn-outline-success btn-sm me-1" onclick="viewDetail('${p.results_id}')" title="查看详情">
                             <i class="bi bi-eye"></i>
@@ -393,8 +404,19 @@
                     html += `<td>${fieldValue}</td>`;
                 });
                 
+                // 修复created_at处理，确保处理字符串和日期对象
+                const createdAtValue2 = p.created_at;
+                let createdAtDisplay2 = '-';
+                if (createdAtValue2) {
+                    if (typeof createdAtValue2 === 'string' && createdAtValue2.length >= 10) {
+                        createdAtDisplay2 = createdAtValue2.substring(0, 10);
+                    } else if (typeof createdAtValue2 === 'object' && createdAtValue2.date) {
+                        createdAtDisplay2 = createdAtValue2.date.substring(0, 10);
+                    }
+                }
+                
                 html += `
-                    <td>${p.created_at ? p.created_at.substring(0, 10) : '-'}</td>
+                    <td>${createdAtDisplay2}</td>
                     <td>
                         <button class="btn btn-outline-success btn-sm me-1" onclick="viewDetail('${p.results_id}')" title="查看详情">
                             <i class="bi bi-eye"></i>

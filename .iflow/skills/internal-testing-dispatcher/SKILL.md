@@ -35,15 +35,16 @@ license: MIT
 | 循环管理 | 进度、统计、追踪、轮次 | loop-management |
 | 制定计划 | 计划、用例、范围 | test-plan |
 | 创建索引 | 索引、建立索引 | index-builder |
+| 语法检查 | 语法、lint、flake8、eslint、代码规范 | syntax-checker |
 
 ### 轮次驱动路由
 
 根据测试轮次建议合适的技能组合：
 
-- **第1轮（冒烟测试）**：issue-discovery, issue-analysis
-- **第2轮（功能测试）**：issue-discovery, issue-analysis, fix-verification
-- **第3轮（边界测试）**：issue-discovery, fix-verification
-- **第N轮（回归测试）**：fix-verification, loop-management, plan-query
+- **第1轮（冒烟测试）**：issue-discovery, issue-analysis, syntax-checker
+- **第2轮（功能测试）**：issue-discovery, issue-analysis, fix-verification, syntax-checker
+- **第3轮（边界测试）**：issue-discovery, fix-verification, syntax-checker
+- **第N轮（回归测试）**：fix-verification, loop-management, plan-query, syntax-checker
 
 ## 使用方法
 
@@ -85,6 +86,67 @@ license: MIT
 - issue-analysis - 问题分析
 - fix-verification - 修复验证
 - loop-management - 循环管理
+- syntax-checker - 语法检查
+
+## 📄 调度上下文与文档
+
+### 上下文持久化
+
+自动维护测试上下文，记录：
+- 当前轮次
+- 计划/索引状态
+- 问题统计
+- 待修复问题清单
+
+### 文档自动生成
+
+调度中心会根据测试进度自动触发文档生成：
+
+| 触发条件 | 生成文档 | 位置 |
+|---------|---------|------|
+| test-plan 完成后 | 测试计划 | `.test/plans/plan_*.md` |
+| index-builder 完成后 | 索引文件 | `internal_testing_index.json` |
+| issue-discovery 发现问题 | 问题清单 | `.test/plans/issues_*.md` |
+| issue-analysis 完成后 | 分析报告 | `.test/plans/analysis_*.md` |
+| fix-verification 完成后 | 验证报告 | `.test/plans/verify_*.md` |
+| loop-management 轮次结束 | 轮次报告 | `.test/plans/round_report_*.md` |
+
+### 代码修订记录
+
+所有代码修改自动记录到 `.test/logs/`：
+
+```log
+#========================================
+# 代码修订记录
+#========================================
+时间: YYYY-MM-DD HH:mm:ss
+操作: 修改
+文件: app/backend.py
+行号: 20-30
+变更类型: 功能修复
+触发技能: fix-verification
+关联问题: ISSUE_001
+#========================================
+```
+
+### 文档索引
+
+所有生成的文档会建立索引，方便查询：
+
+```json
+{
+  "plans": {
+    "plan_20260123_143022": ".test/plans/plan_20260123_143022_字段渲染.md",
+    "round_report_20260123": ".test/plans/round_report_20260123_1.md"
+  },
+  "logs": {
+    "changes_20260123_001": ".test/logs/changes_20260123_001.log",
+    "changes_20260123_002": ".test/logs/changes_20260123_002.log"
+  }
+}
+```
+
+可通过 plan-query 技能查询所有文档和记录。
 
 ---
 

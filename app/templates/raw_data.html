@@ -99,7 +99,7 @@
                             <td>{{ p.raw_species or '-' }}</td>
                             <td>{{ p.raw_tissue or '-' }}</td>
 {%- endif %}
-                            <td>{{ p.created_at.strftime('%Y-%m-%d') if p.created_at else '-' }}</td>
+                            <td>{{ p.created_at[:10] if p.created_at is string and p.created_at|length > 10 else (p.created_at if p.created_at else '-') }}</td>
                             <td>
                                 <button class="btn btn-outline-primary btn-sm me-1" onclick="viewDetail('{{ p.raw_id }}')" title="查看详情">
                                     <i class="bi bi-eye"></i>
