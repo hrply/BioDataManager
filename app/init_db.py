@@ -347,6 +347,22 @@ def init_select_options(db, force=False):
         ('raw_species', raw_species_options),
         ('raw_tissue', raw_tissue_options),
     ]
+
+    # ==================== 结果数据类型选项 ====================
+    # 重要：results_type 必须有对应的 select_options 数据
+    # 否则 get_abbr() 和 _build_file_property() 无法正确工作
+    # 路径生成需要使用 abbr_mapping 表中的缩写
+    results_type_options = [
+        ('DEA', '差异分析 (DEA)', 1),
+        ('Marker', 'Marker基因', 2),
+        ('Enrichment', '富集分析', 3),
+        ('PPI', '蛋白互作 (PPI)', 4),
+        ('Network', '网络分析', 5),
+        ('Clustering', '聚类分析', 6),
+        ('Dimension', '降维分析', 7),
+        ('Trajectory', '轨迹分析', 8),
+    ]
+    all_options.append(('results_type', results_type_options))
     
     for option_type, options in all_options:
         for opt in options:
@@ -469,6 +485,22 @@ def init_abbr_mapping(db, force=False):
         ('raw_species', raw_species_abbrs),
         ('raw_tissue', raw_tissue_abbrs),
     ]
+
+    # ==================== 结果类型缩写 ====================
+    # 重要：results_type 必须有对应的 abbr_mapping 数据
+    # 否则 _build_result_project_path() 和 _build_file_property() 无法正确生成路径
+    # 路径生成规则：/bio/results/{分析类型缩写}/{项目ID}[/{关联项目ID}]
+    results_type_abbrs = [
+        ('DEA', 'DEA'),
+        ('Marker', 'MKR'),
+        ('Enrichment', 'ENR'),
+        ('PPI', 'PPI'),
+        ('Network', 'NET'),
+        ('Clustering', 'CLU'),
+        ('Dimension', 'DIM'),
+        ('Trajectory', 'TRA'),
+    ]
+    all_abbrs.append(('results_type', results_type_abbrs))
     
     for field_id, abbrs in all_abbrs:
         for abbr in abbrs:

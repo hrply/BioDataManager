@@ -468,6 +468,16 @@
             }
         }
         
+        // results_type 字段：收集用户选择的结果类型（用于后端路径生成）
+        const resultsTypeField = metadataFields.find(f => f.field_id === 'results_type');
+        if (resultsTypeField) {
+            const fieldEl = $('#metadata-' + resultsTypeField.field_id);
+            const resultsTypeInput = fieldEl.val()?.trim() || '';
+            if (resultsTypeInput) {
+                formData.results_type = resultsTypeInput;
+            }
+        }
+        
         return formData;
     }
 
@@ -956,6 +966,34 @@
             }
             
             requestData.project_info = formData;
+            
+            // 【关键修改】新建项目模式也需要传递 metadata_override 用于后端生成路径
+            // 根据 7.5 文件导入设计规范：
+            // - file_path 和 file_property 的生成只使用前端传入的 metadata
+            // - 新建项目时，metadata_override 应该包含用于路径生成的字段值
+            const metadata_override = {};
+            if (!isRaw) {
+                // 结果数据：传递 results_type 和 results_raw 用于路径生成
+                if (formData.results_type) {
+                    metadata_override.results_type = formData.results_type;
+                }
+                if (formData.results_raw) {
+                    metadata_override.results_raw = formData.results_raw;
+                }
+            } else {
+                // 原始数据：传递 raw_type, raw_species, raw_tissue 用于路径生成
+                if (formData.raw_type) {
+                    metadata_override.raw_type = formData.raw_type;
+                }
+                if (formData.raw_species) {
+                    metadata_override.raw_species = formData.raw_species;
+                }
+                if (formData.raw_tissue) {
+                    metadata_override.raw_tissue = formData.raw_tissue;
+                }
+            }
+            requestData.metadata_override = metadata_override;
+            
             console.log('DEBUG requestData:', JSON.stringify(requestData, null, 2));
             
             apiPost('/api/import-download', requestData).then(function(res) {
@@ -992,27 +1030,26 @@
                     
                     // 对于特殊字段进行合并处理
                     if (isRaw && field.field_id === 'raw_tissue') {
-                        // raw_tissue 字段：合并已有值和新选择的值（多选）
-                        const current_raw_tissue = window.currentProjectRawTissue || '';
-                        if (fieldValue && Array.isArray(fieldValue) && fieldValue.length > 0) {
-                            const existingIds = current_raw_tissue.split(',').map(s => s.trim()).filter(s => s);
-                            const newIds = fieldValue.map(s => s.trim()).filter(s => s);
-                            const allIds = [...new Set([...existingIds, ...newIds])];
-                            metadata_override[field.field_id] = allIds.join(',');
-                        } else if (current_raw_tissue) {
-                            metadata_override[field.field_id] = current_raw_tissue;
+                        // raw_tissue 字段：单选，收集新选择的值
+                        const newValue = fieldValue && typeof fieldValue === 'string' ? fieldValue.trim() : '';
+                        if (newValue) {
+                            metadata_override[field.field_id] = newValue;
                         }
                     } else if (!isRaw && field.field_id === 'results_raw') {
-                        // results_raw 字段：合并已有值和新输入的值（支持逗号分隔）
-                        const current_results_raw = window.currentProjectResultsRaw || '';
+                        // results_raw 字段：只收集新输入的值，不合并已有值
+                        // 注意：合并已有值由后端 merge_field_value 处理
+                        // file_path 和 file_property 生成只使用前端输入，不查询数据库
                         if (fieldValue && typeof fieldValue === 'string' && fieldValue.trim()) {
-                            const existingIds = current_results_raw.split(/[,，]/).map(s => s.trim()).filter(s => s);
-                            const newIds = fieldValue.split(/[,，]/).map(s => s.trim()).filter(s => s);
-                            const allIds = [...new Set([...existingIds, ...newIds])];
-                            metadata_override[field.field_id] = allIds.join(',');
-                        } else if (current_results_raw) {
-                            metadata_override[field.field_id] = current_results_raw;
+                            metadata_override[field.field_id] = fieldValue.trim();
                         }
+                        // 如果用户没有输入新值，不传递任何值，后端不更新此字段
+                    } else if (!isRaw && field.field_id === 'results_type') {
+                        // results_type 字段：只收集新选择的值，不合并已有值
+                        // file_path 和 file_property 生成只使用前端输入，不查询数据库
+                        if (fieldValue && typeof fieldValue === 'string' && fieldValue.trim()) {
+                            metadata_override[field.field_id] = fieldValue.trim();
+                        }
+                        // 如果用户没有选择新值，不传递任何值
                     } else {
                         // 其他字段直接收集值
                         if (fieldValue) {
@@ -1024,6 +1061,19 @@
                         }
                     }
                 }
+            });
+            
+            // 逗号规范化：将各种分隔符替换为英文逗号
+            // 使用 Unicode 转义序列确保正确匹配全角字符
+            const normalizeCommas = (str) => {
+                if (!str || typeof str !== 'string') return str;
+                // 替换各种分隔符为英文逗号：全角问号(U+FF1F)、全角逗号(U+FF0C)、英文问号(U+003F)
+                return str.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
+            };
+            
+            // 对所有 metadata_override 值进行逗号规范化
+            Object.keys(metadata_override).forEach(key => {
+                metadata_override[key] = normalizeCommas(metadata_override[key]);
             });
             
             requestData.metadata_override = metadata_override;

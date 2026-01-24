@@ -1,0 +1,254 @@
+#========================================
+# 代码修订记录
+#========================================
+时间: 2026-01-24 17:30:00
+操作: 修改
+文件: docs/应用功能设计.md
+行号: 7.5.1.2步骤7, 7.5.2.1, 7.5.2.2步骤2, 7.5.2.2步骤7, 7.5.6规则5
+变更类型: 文档更新
+
+【修改前】
+7.5.1.2 步骤7: "追加 metadata" + `append_field_value`
+7.5.2.1: `_parse_and_sort_project_ids`
+7.5.2.2 步骤2: `_parse_and_sort_project_ids`
+7.5.2.2 步骤7: "追加 metadata" + `append_field_value`
+7.5.6 规则5: "追加元数据"
+
+【修改后】
+7.5.1.2 步骤7: "覆盖式合并 metadata" + `merge_field_value`
+7.5.2.1: `_parse_and_sort`
+7.5.2.2 步骤2: `_parse_and_sort`
+7.5.2.2 步骤7: "覆盖式合并 metadata" + `merge_field_value`
+7.5.6 规则5: "元数据合并"
+
+新增 7.5.7 元数据处理详细规则：
+- 7.5.7.1 路径/属性生成 vs 元数据合并的区别
+- 7.5.7.2 排序函数共用 (`_parse_and_sort`)
+- 7.5.7.3 元数据合并处理流程 (`merge_field_value`)
+- 7.5.7.4 函数重命名说明
+
+关联问题: 元数据处理逻辑更新
+验证结果: 文档已更新，明确元数据处理为"读取数据库→合并→去重→排序→覆盖"逻辑
+#========================================
+
+#========================================
+# 代码修订记录
+#========================================
+时间: 2026-01-24 17:45:00
+操作: 修改
+文件: app/backend.py, app/server.py
+行号: 详见变更内容
+变更类型: 代码重构
+
+【修改前】
+函数定义: `_parse_and_sort_project_ids`, `append_field_value`
+调用处: 6处 backend.py + 2处 server.py
+
+【修改后】
+函数定义: `_parse_and_sort`, `merge_field_value`
+- `_parse_and_sort`: 解析逗号分隔的项目ID，按字母排序后组合
+- `merge_field_value`: 读取数据库 → 合并 → 去重 → 排序 → 覆盖存储
+
+backend.py 调用处更新 (6处):
+- L405: self._parse_and_sort_project_ids → self._parse_and_sort
+- L917: self._parse_and_sort_project_ids → self._parse_and_sort
+- L1119: self.append_field_value → self.merge_field_value
+- L1208: self.append_field_value → self.merge_field_value
+- L1215: self._parse_and_sort_project_ids → self._parse_and_sort
+- L1375: self.append_field_value → self.merge_field_value
+
+server.py 调用处更新 (2处):
+- L438: get_manager().append_field_value → get_manager().merge_field_value
+- L472: get_manager().append_field_value → get_manager().merge_field_value
+
+关联问题: 元数据处理逻辑更新
+验证结果: 代码已更新，与文档保持一致
+#========================================
+
+#========================================
+# 代码修订记录
+#========================================
+时间: 2026-01-24 18:00:00
+操作: 修改
+文件: app/backend.py, app/templates/files.html, app/templates/raw_data.html, app/templates/results.html
+行号: 详见变更内容
+变更类型: Bug修复
+
+【问题】
+用户输入结果项目关联的原始项目编号时，使用中文输入法的全角问号 `？` 分隔，导致 `_parse_and_sort` 函数无法正确分割和排序。
+数据库存储: `RAW_r1iL3duI?RAW_asf3Gd82`（被当作一个整体）
+期望路径: `/bio/results/RES_qbyDL6B6/Mar/RAW_asf3Gd82RAW_r1iL3duI/`
+实际路径: `/bio/results/RES_qbyDL6B6/Mar/`
+
+【修改内容】
+1. backend.py - `_parse_and_sort` 函数：
+   - 新增支持全角问号 `？` 和英文问号 `?` 作为分隔符
+
+2. backend.py - `normalize_commas` 函数：
+   - 新增支持全角问号 `？` 和英文问号 `?`
+
+3. templates/files.html - `normalizeCommas` 函数：
+   - 正则从 `/[，]/g` 改为 `/[？？?,]/g`
+
+4. templates/raw_data.html - 逗号规范化：
+   - 正则从 `/[，]/g` 改为 `/[？？?,]/g`
+   - tags 处理正则从 `/[，,]/g` 改为 `/[？？?,]/g`
+
+5. templates/results.html - 逗号规范化：
+   - 正则从 `/[，]/g` 改为 `/[？？?,]/g`
+   - tags 处理正则从 `/[，,]/g` 改为 `/[？？?,]/g`
+   - results_raw 处理正则从 `/[,，]/` 改为 `/[？？?,]/`
+
+【验证结果】
+前端和后端现在统一使用正则 `/[？？?,]/g` 处理分隔符，支持：
+- 中文逗号 `，`
+- 英文逗号 `,`
+- 全角问号 `？`
+- 英文问号 `?`
+
+关联问题: 内测发现路径生成错误
+#========================================
+
+#========================================
+# 代码修订记录
+#========================================
+时间: 2026-01-24 18:30:00
+操作: 修改
+文件: app/database_mysql.py
+行号: get_connection 函数
+变更类型: Bug修复
+
+【问题】
+用户输入中文逗号 `，` 作为分隔符，但数据库查询时显示为问号 `?`。
+根本原因：连接池会话重置后，字符集被还原为 latin1，导致 UTF-8 中文被错误解释。
+数据库编码验证：
+- 使用 --default-character-set=utf8mb4 查询：显示中文逗号（正确）
+- 使用默认 latin1 查询：显示问号（错误）
+
+【修改内容】
+在 get_connection 函数中，显式执行 `SET NAMES utf8mb4`：
+
+```python
+def get_connection(self):
+    """获取数据库连接并设置字符集为 UTF-8"""
+    if self._pool:
+        try:
+            connection = self._pool.get_connection()
+            # 显式设置字符集为 utf8mb4，防止会话重置后编码错误
+            cursor = connection.cursor()
+            cursor.execute("SET NAMES utf8mb4")
+            cursor.close()
+            return connection
+        except Error as e:
+            print(f"从连接池获取连接失败: {e}")
+            return None
+```
+
+【验证结果】
+- 数据库表和列已使用 utf8mb4 编码
+- Python MySQL Connector 已设置 charset=utf8mb4
+- 现在每次获取连接后显式执行 SET NAMES utf8mb4
+- 确保中文字符正确存储和读取
+
+关联问题: 内测发现中文逗号被转换为问号
+#========================================## 2026-01-24 Bug修复
+
+### Bug 1: 原始数据管理筛选默认值错误
+- **文件**: `app/templates/raw_data.html`
+- **问题**: `loadFilterOptions()` 使用 `$filter.empty()` 清空了下拉框，导致初始的"全部"选项被删除
+- **修复**: 在添加选项前，先添加 `"全部"` 选项
+
+### Bug 2: 结果管理页面不显示项目
+- **文件**: `app/templates/results.html`
+- **问题**: 有两个 `renderProjects` 函数（第 288 行和原第 368 行），第二个覆盖了正确的实现，第二个函数没有使用 `window.resultFields` 导致字段列表为空
+- **修复**: 删除了重复的 `renderProjects` 函数
+
+
+## 2026-01-24 Bug修复 (续)
+
+### Bug 3: file_property 和 file_path 使用了合并后的数据库值
+- **文件**: `app/backend.py`
+- **问题**: 
+  - `add_file_record` 函数在 `metadata` 不完整时会从数据库查询 fallback
+  - 由于 `merge_field_value` 已经把新值合并到数据库，fallback 会导致使用合并后的值
+  - `import_processed_file` 没有传递 `metadata_override` 给 `add_file_record`
+- **修复**:
+  - 修改 `add_file_record`: 只使用前端传入的 `metadata`，不查询数据库 fallback
+  - 修改 `import_processed_file`: 传递 `metadata_override` 给 `add_file_record`
+
+### 设计规则确认
+- **file_path 和 file_property 生成**: 只使用前端输入，不查询数据库
+- **metadata 合并**: 先合并到数据库（用于存储），再使用前端输入（用于路径生成）
+
+## 2026-01-24 Bug修复 (续2)
+
+### Bug 4: 前端 results_raw 合并了已有值和新输入的值
+- **文件**: `app/templates/files.html`
+- **问题**: 导入至已有项目时，前端把数据库中的 `results_raw` 已有值和新输入的值合并后传给后端
+  ```javascript
+  const allIds = [...new Set([...existingIds, ...newIds])];
+  metadata_override[field.field_id] = allIds.join(',');
+  ```
+- **修复**: 只收集新输入的值，不合并已有值
+  ```javascript
+  if (fieldValue && typeof fieldValue === 'string' && fieldValue.trim()) {
+      metadata_override[field.field_id] = fieldValue.trim();
+  }
+  ```
+- **设计规则**:
+  - 数据库合并：由后端 `merge_field_value` 处理（合并已有值 + 新值）
+  - 路径生成：只使用前端输入（不查询数据库）
+
+## 2026-01-24 Bug修复 (续3)
+
+### 问题总结
+用户导入文件至 RES_FpufGXcN，选择"差异分析 (DEA)"和"RAW_r5553duI, RAW_a555Gd82"，
+但实际结果完全不符合预期。
+
+### 问题 1: results_type 选项缺失
+- **原因**: `select_options` 表没有 `results_type` 的选项数据
+- **修复**: 在 `select_options` 表中添加 `results_type` 的选项数据
+
+### 问题 2: normalizeCommas 正则表达式错误
+- **文件**: `app/templates/files.html`
+- **原因**: `/[？？?,]/g` 正则表达式中的中文字符可能被错误解析
+- **修复**: 使用 Unicode 转义序列 `[？，?,]` 确保正确匹配
+
+### 问题 3: 已有数据的分隔符不一致
+- **原因**: 旧数据使用 `?` 作为分隔符，而非 `,`
+- **修复**: 现有数据需要手动清理或重新导入
+
+### 设计规则
+- `select` 类型字段的选项存储在 `select_options` 表中
+- `field_options` 字段仅用于前端动态表单渲染
+- 逗号规范化：前端使用 `normalizeCommas` 函数处理各种分隔符
+
+## 2026-01-24 Bug修复 (续4)
+
+### 问题 5: results_raw filter 使用精确匹配导致多值字段无法筛选
+- **文件**: `app/templates/results.html`
+- **原因**: `applyFilter` 函数对 `results_raw` 使用精确匹配 `===`，但 `results_raw` 是逗号分隔的多值字段
+- **修复**: 改为包含匹配 `p.results_raw.includes(raw)`
+
+### 问题 6: Docker 容器未重启导致代码未更新
+- **修复**: 重启 biodata-manager 容器
+
+### 现有数据的分隔符问题
+- **原因**: 旧数据使用 `?` 作为分隔符，而非 `,`
+- **说明**: 现有数据 `results_raw = "RAW_r1iL3duI?RAW_asf3Gd82"` 需要手动清理或重新导入
+
+### 调试建议
+- 请在浏览器控制台查看 `metadata_override` 的值，确认前端是否正确传递了 `results_raw`
+- 后端 `merge_field_value` 函数有 `[DEBUG]` 日志，可以查看合并过程
+
+## 2026-01-24 Bug修复 (续5)
+
+### 问题 7: requestDebounce 防抖机制导致 API 调用被阻止
+- **文件**: `app/templates/base.html`
+- **原因**: 页面初始化时 `loadProjects()` 和 `loadFilterOptions()` 同时调用 API，
+  防抖机制返回空的 Promise `{ success: true, debounced: true }`，导致数据未加载
+- **修复**: 改为等待上次请求完成后返回其 Promise，确保数据正确加载
+
+### 修复效果
+- 页面刷新后应该立即显示项目数据
+- 不再需要点击"应用筛选"或"重置"才能看到数据

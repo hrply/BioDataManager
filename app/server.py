@@ -54,6 +54,7 @@ METADATA_PROJECT_ROWTITLE_RESULT = parse_field_config('METADATA_PROJECT_ROWTITLE
 # Flask 应用配置
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['JSON_AS_ASCII'] = False  # 确保JSON响应不转义中文
 
 # 延迟初始化
 _db_manager = None
@@ -434,7 +435,7 @@ def api_append_raw_project_metadata(raw_id):
         if not field_id or not new_value:
             return jsonify({'success': False, 'message': '缺少field_id或new_value'})
         
-        result = get_manager().append_field_value('raw_project', raw_id, field_id, new_value)
+        result = get_manager().merge_field_value('raw_project', raw_id, field_id, new_value)
         return jsonify({'success': True, 'new_value': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -468,7 +469,7 @@ def api_append_result_project_metadata(results_id):
         if not field_id or not new_value:
             return jsonify({'success': False, 'message': '缺少field_id或new_value'})
         
-        result = get_manager().append_field_value('result_project', results_id, field_id, new_value)
+        result = get_manager().merge_field_value('result_project', results_id, field_id, new_value)
         return jsonify({'success': True, 'new_value': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -639,8 +640,7 @@ def api_import_download():
                 return jsonify({'success': False, 'message': '创建项目成功但无法获取项目ID'})
             
             # 新建项目时，使用 project_info 作为 metadata_override 用于构建路径
-            # 但由于值已在 create_raw_project/create_result_project 中设置，这里需要清除以避免重复追加
-            metadata_override = {}
+            metadata_override = project_info
         
         if not project_id or not files:
             return jsonify({'success': False, 'message': '缺少参数'})
@@ -1028,7 +1028,12 @@ def api_import_processed_file():
 def api_get_metadata_config():
     """获取元数据配置（兼容旧API）"""
     try:
-        config = get_config_manager().get_all_configs()
+        # 支持 table 参数过滤
+        field_table = request.args.get('table')
+        if field_table:
+            config = get_config_manager().get_configs_by_table(field_table)
+        else:
+            config = get_config_manager().get_all_configs()
         return jsonify({'success': True, 'config': config})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})

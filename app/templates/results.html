@@ -227,10 +227,10 @@
 
     // 加载筛选选项和关联数据
     function loadFilterOptions() {
-        // 加载结果类型选项
-        apiGet('/api/metadata/config').then(function(res) {
+        // 加载结果类型选项（只获取 result 类型字段）
+        apiGet('/api/metadata/config', { table: 'result' }).then(function(res) {
             if (res.success && res.config) {
-                const resultFields = res.config.filter(f => f.field_table === 'result');
+                // 直接使用返回的 result 字段，无需前端过滤
                 
                 resultFields.forEach(function(field) {
                     if (field.field_type === 'select') {
@@ -327,7 +327,9 @@
                     if (fieldId === 'results_type') {
                         fieldValue = `<span class="badge bg-success">${fieldValue}</span>`;
                     } else if (fieldId === 'results_raw' && fieldValue !== '-') {
-                        fieldValue = fieldValue.split(',').map(id => `<code>${id.trim()}</code>`).join(', ');
+                        // 转换为中文逗号后显示
+                        const displayValue = toChineseComma(fieldValue);
+                        fieldValue = displayValue.split(',').map(id => `<code>${id.trim()}</code>`).join(', ');
                     }
                     
                     html += `<td>${fieldValue}</td>`;
@@ -360,77 +362,6 @@
             $('#project-list').html(html);
         }
 
-        $('#total-count').text(`共 ${projects.length} 条记录`);
-        renderPagination();
-    }
-
-    // 渲染项目列表
-    function renderProjects() {
-        const start = (currentPage - 1) * pageSize;
-        const end = start + pageSize;
-        const pageProjects = projects.slice(start, end);
-        const fields = displayFields.length > 0 ? displayFields : [];
-        const dynamicColCount = 2 + fields.length;
-        
-        if (pageProjects.length === 0) {
-            $('#project-list').html(`
-                <tr>
-                    <td colspan="${dynamicColCount}" class="text-center py-4 text-muted">
-                        <i class="bi bi-inbox fs-4 d-block mb-2"></i>
-                        暂无数据
-                    </td>
-                </tr>
-            `);
-        } else {
-            let html = '';
-            pageProjects.forEach(function(p, index) {
-                html += `<tr><td>${start + index + 1}</td>`;
-                
-                // 动态渲染字段列（根据 rowtitle_mapping 配置，从第2列开始）
-                fields.forEach(function(field) {
-                    const fieldId = field.field_id;
-                    let fieldValue = p[fieldId] || '-';
-                    
-                    // 处理多值字段显示
-                    if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
-                        const values = fieldValue.split(',').map(v => v.trim());
-                        const labels = values.map(v => {
-                            const opt = (field.field_options || []).find(o => o.value === v);
-                            return opt ? opt.label : v;
-                        });
-                        fieldValue = labels.join(', ');
-                    }
-                    
-                    html += `<td>${fieldValue}</td>`;
-                });
-                
-                // 修复created_at处理，确保处理字符串和日期对象
-                const createdAtValue2 = p.created_at;
-                let createdAtDisplay2 = '-';
-                if (createdAtValue2) {
-                    if (typeof createdAtValue2 === 'string' && createdAtValue2.length >= 10) {
-                        createdAtDisplay2 = createdAtValue2.substring(0, 10);
-                    } else if (typeof createdAtValue2 === 'object' && createdAtValue2.date) {
-                        createdAtDisplay2 = createdAtValue2.date.substring(0, 10);
-                    }
-                }
-                
-                html += `
-                    <td>${createdAtDisplay2}</td>
-                    <td>
-                        <button class="btn btn-outline-success btn-sm me-1" onclick="viewDetail('${p.results_id}')" title="查看详情">
-                            <i class="bi bi-eye"></i>
-                        </button>
-                        <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('${p.results_id}')" title="删除">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                </tr>
-                `;
-            });
-            $('#project-list').html(html);
-        }
-        
         $('#total-count').text(`共 ${projects.length} 条记录`);
         renderPagination();
     }
@@ -622,21 +553,30 @@
                 if (el.length) {
                     if (field.field_type === 'select') {
                         if (field.field_id === 'results_raw') {
-                            // results_raw 是文本输入框
-                            data[field.field_id] = el.val();
+                            // results_raw 是文本输入框，规范化分隔符
+                            // 使用 Unicode 转义序列：\uFF1F=全角问号，\uFF0C=中文逗号，\u003F=英文问号，\u002C=英文逗号
+                            let value = el.val() || '';
+                            data[field.field_id] = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
                         } else {
                             // select 类型获取选中的值（多选用逗号分隔）
                             const selectedValues = el.val();
                             if (selectedValues && Array.isArray(selectedValues)) {
-                                data[field.field_id] = selectedValues.join(',');
+                                // 规范化分隔符：将全角问号、中文逗号、英文问号替换为英文逗号
+                                let value = selectedValues.join(',');
+                                value = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
+                                data[field.field_id] = value;
                             } else {
                                 data[field.field_id] = '';
                             }
                         }
                     } else if (field.field_type === 'textarea') {
-                        data[field.field_id] = el.val();
+                        // 规范化分隔符
+                        let value = el.val() || '';
+                        data[field.field_id] = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
                     } else {
-                        data[field.field_id] = el.val();
+                        // 规范化分隔符
+                        let value = el.val() || '';
+                        data[field.field_id] = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
                     }
                 }
             });
@@ -722,12 +662,14 @@
                         // link 类型显示为超链接
                         displayValue = `<a href="${fieldValue}" target="_blank" class="text-break">${fieldValue}</a>`;
                     } else if (fieldValue !== '-' && field.field_type === 'tags') {
-                        // tags 类型用标签云显示（逗号分隔）
-                        const tags = (fieldValue || '').replace(/[，,]/g, ',').split(',').map(k => k.trim()).filter(k => k);
+                        // tags 类型用标签云显示（先转换为中文逗号，再分割）
+                        const displayCommaValue = toChineseComma(fieldValue);
+                        const tags = (displayCommaValue || '').split(',').map(k => k.trim()).filter(k => k);
                         displayValue = tags.map(k => `<span class="badge bg-success me-1 mb-1">${k}</span>`).join('');
                     } else if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
-                        // 下拉选择框的 value 转换为 label
-                        const values = fieldValue.split(',').map(v => v.trim());
+                        // 下拉选择框的 value 转换为 label（先转换为中文逗号）
+                        const displayCommaValue = toChineseComma(fieldValue);
+                        const values = displayCommaValue.split(',').map(v => v.trim());
                         const labels = values.map(v => {
                             const opt = (field.field_options || []).find(o => o.value === v);
                             return opt ? opt.label : v;
@@ -789,7 +731,7 @@
                     filtered = filtered.filter(p => p.results_type === type);
                 }
                 if (raw) {
-                    filtered = filtered.filter(p => p.results_raw === raw);
+                    filtered = filtered.filter(p => p.results_raw && p.results_raw.includes(raw));
                 }
 
                 projects = filtered;

@@ -98,6 +98,18 @@
         .modal-header .btn-close {
             filter: invert(1);
         }
+        /* 长文本处理样式 */
+        .text-wrap {
+            white-space: normal !important;
+        }
+        .word-wrap {
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+        }
+        .text-break {
+            overflow-wrap: break-word !important;
+            word-break: break-word !important;
+        }
         .form-label {
             font-weight: 500;
             color: var(--primary-color);
@@ -221,16 +233,28 @@
                 const last = this.pending.get(key);
                 
                 if (last && (now - last.time < delay)) {
-                    // 距离上次请求太近，返回已解析的 Promise
-                    return $.Deferred().resolve({ success: true, debounced: true }).promise();
+                    // 距离上次请求太近，等待上次请求完成后返回
+                    return last.promise;
                 }
                 
-                this.pending.set(key, { time: now });
+                // 创建新的 Promise
+                const deferred = $.Deferred();
+                this.pending.set(key, { time: now, promise: deferred.promise() });
                 
-                // 3秒后清理记录
-                setTimeout(() => this.pending.delete(key), 3000);
+                // 异步执行函数
+                setTimeout(() => {
+                    const result = fn();
+                    // 如果结果是 Promise，则在其完成后解析
+                    if (result && typeof result.then === 'function') {
+                        result.then(deferred.resolve, deferred.reject);
+                    } else {
+                        deferred.resolve(result);
+                    }
+                    // 3秒后清理记录
+                    setTimeout(() => this.pending.delete(key), 3000);
+                }, 0);
                 
-                return fn();
+                return deferred.promise();
             }
         };
 
@@ -252,9 +276,17 @@
             }
         }
 
+        // 全局辅助函数：将英文逗号转换为中文逗号（用于显示）
+        function toChineseComma(value) {
+            if (!value || typeof value !== 'string') return value || '';
+            return value.replace(/,/g, '，');
+        }
+
         // API 调用封装 - 带防抖
         function apiGet(url, params = {}) {
-            const key = `GET:${url}`;
+            // 将 params 序列化后加入 key，确保不同参数的请求不会被合并
+            const paramsStr = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&');
+            const key = `GET:${url}?${paramsStr}`;
             return requestDebounce.debounce(key, function() {
                 showLoading();
                 return $.get(url, params)

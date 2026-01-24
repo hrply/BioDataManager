@@ -269,9 +269,9 @@
 
     // 加载筛选选项
     function loadFilterOptions() {
-        apiGet('/api/metadata/config').then(function(res) {
+        apiGet('/api/metadata/config', { table: 'raw' }).then(function(res) {
             if (res.success && res.config) {
-                const rawFields = res.config.filter(f => f.field_table === 'raw');
+                // 直接使用返回的 raw 字段，无需前端过滤
                 
                 rawFields.forEach(function(field) {
                     if (field.field_type === 'select' || field.field_type === 'multi_select') {
@@ -282,6 +282,10 @@
                         // 先清空所有下拉框，避免重复
                         $select.empty();
                         $filter.empty();
+                        
+                        // 先添加"全部"选项
+                        $select.append('<option value="">请选择</option>');
+                        $filter.append('<option value="">全部</option>');
                         
                         options.forEach(function(opt) {
                             $select.append(`<option value="${opt.value}">${opt.label}</option>`);
@@ -347,9 +351,10 @@
                     const fieldId = field.field_id;
                     let fieldValue = p[fieldId] || '-';
                     
-                    // 处理多值字段显示
+                    // 处理多值字段显示（转换为中文逗号）
                     if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
-                        const values = fieldValue.split(',').map(v => v.trim());
+                        const displayCommaValue = toChineseComma(fieldValue);
+                        const values = displayCommaValue.split(',').map(v => v.trim());
                         const labels = values.map(v => {
                             const opt = (field.field_options || []).find(o => o.value === v);
                             return opt ? opt.label : v;
@@ -562,14 +567,21 @@
                         // select 类型获取选中的值（多选用逗号分隔）
                         const selectedValues = el.val();
                         if (selectedValues && Array.isArray(selectedValues)) {
-                            data[field.field_id] = selectedValues.join(',');
+                            // 规范化分隔符：将全角问号、中文逗号、英文问号替换为英文逗号
+                            let value = selectedValues.join(',');
+                            value = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
+                            data[field.field_id] = value;
                         } else {
                             data[field.field_id] = '';
                         }
                     } else if (field.field_type === 'textarea') {
-                        data[field.field_id] = el.val();
+                        // 规范化分隔符
+                        let value = el.val() || '';
+                        data[field.field_id] = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
                     } else {
-                        data[field.field_id] = el.val();
+                        // 规范化分隔符
+                        let value = el.val() || '';
+                        data[field.field_id] = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
                     }
                 }
             });
@@ -649,12 +661,14 @@
                                                     // link 类型显示为超链接
                                                     displayValue = `<a href="${fieldValue}" target="_blank" class="text-break">${fieldValue}</a>`;
                                                 } else if (fieldValue !== '-' && field.field_type === 'tags') {
-                                                    // tags 类型用标签云显示（逗号分隔）
-                                                    const tags = (fieldValue || '').replace(/[，,]/g, ',').split(',').map(k => k.trim()).filter(k => k);
+                                                    // tags 类型用标签云显示（先转换为中文逗号）
+                                                    const displayCommaValue = toChineseComma(fieldValue);
+                                                    const tags = (displayCommaValue || '').split(',').map(k => k.trim()).filter(k => k);
                                                     displayValue = tags.map(k => `<span class="badge bg-primary me-1 mb-1">${k}</span>`).join('');
                                                 } else if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
-                                                    // 下拉选择框的 value 转换为 label
-                                                    const values = fieldValue.split(',').map(v => v.trim());
+                                                    // 下拉选择框的 value 转换为 label（先转换为中文逗号）
+                                                    const displayCommaValue = toChineseComma(fieldValue);
+                                                    const values = displayCommaValue.split(',').map(v => v.trim());
                                                     const labels = values.map(v => {
                                                         const opt = (field.field_options || []).find(o => o.value === v);
                                                         return opt ? opt.label : v;
@@ -788,9 +802,9 @@
         const species = $('#filter-raw_species').val();
         const tissue = $('#filter-raw_tissue').val();
         
-        apiGet('/api/projects').then(function(res) {
+        apiGet('/api/projects', {table: 'raw'}).then(function(res) {
             if (res.success) {
-                let filtered = res.projects || [];
+                let filtered = res.data || [];
                 
                 if (type) {
                     filtered = filtered.filter(p => p.raw_type === type);
@@ -807,6 +821,8 @@
                 renderProjects();
                 showToast(`筛选完成，找到 ${projects.length} 条记录`, 'success');
             }
+        }).catch(function(err) {
+            showToast('筛选失败', 'error');
         });
     }
 </script>

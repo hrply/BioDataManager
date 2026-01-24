@@ -109,11 +109,16 @@ class DatabaseManager:
         self.connection = None
     
     def get_connection(self):
-        """获取数据库连接（从连接池获取，不缓存实例变量）"""
+        """获取数据库连接并设置字符集为 UTF-8"""
         if self._pool:
             try:
                 # 直接从连接池获取新连接，不使用 self.connection 缓存
-                return self._pool.get_connection()
+                connection = self._pool.get_connection()
+                # 显式设置字符集为 utf8mb4，防止会话重置后编码错误
+                cursor = connection.cursor()
+                cursor.execute("SET NAMES utf8mb4")
+                cursor.close()
+                return connection
             except Error as e:
                 print(f"从连接池获取连接失败: {e}")
                 return None
@@ -274,7 +279,7 @@ class DatabaseManager:
                     results_id          VARCHAR(50) NOT NULL UNIQUE COMMENT '项目编号(格式: RES_{UUID})',
                     results_title       VARCHAR(255) NOT NULL COMMENT '项目名称',
                     results_type        VARCHAR(50) NOT NULL COMMENT '结果类型',
-                    results_raw         VARCHAR(50) DEFAULT NULL COMMENT '关联原始数据项目编号',
+                    results_raw         VARCHAR(255) DEFAULT NULL COMMENT '关联原始数据项目编号(逗号分隔)',
                     results_description TEXT DEFAULT NULL COMMENT '项目描述',
                     results_keywords    VARCHAR(500) DEFAULT NULL COMMENT '关键词',
                     results_DOI         VARCHAR(100) DEFAULT NULL COMMENT 'DOI号',
