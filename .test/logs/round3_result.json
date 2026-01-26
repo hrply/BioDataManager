@@ -1,0 +1,11 @@
+{
+  "test_round": 3,
+  "test_time": "2026-01-25T23:07:49.152801",
+  "environment": "localhost:20425",
+  "base_url": "http://localhost:20425",
+  "passed": 18,
+  "failed": 0,
+  "warnings": 3,
+  "errors": [],
+  "success": true
+}

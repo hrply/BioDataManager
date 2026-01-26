@@ -1281,21 +1281,39 @@
             return;
         }
         
-        // 使用POST请求下载文件
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '/api/files/download';
-        form.style.display = 'none';
-        
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'file_ids';
-        input.value = JSON.stringify(fileIds);
-        form.appendChild(input);
-        
-        document.body.appendChild(form);
-        form.submit();
-        document.body.removeChild(form);
+        // 使用 fetch API 以 JSON 格式发送请求
+        fetch('/api/files/download', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ file_ids: fileIds })
+        })
+        .then(response => {
+            // 检查响应类型
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/zip')) {
+                // 返回的是文件下载
+                return response.blob().then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'download.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                });
+            } else {
+                // 返回的是错误信息
+                return response.json().then(data => {
+                    showToast(data.message || '下载失败', 'error');
+                });
+            }
+        })
+        .catch(function(err) {
+            showToast('下载失败: ' + (err.message || err.statusText), 'error');
+        });
     }
 
     // ==================== 筛选功能 ====================

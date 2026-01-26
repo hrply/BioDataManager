@@ -276,12 +276,6 @@
             }
         }
 
-        // 全局辅助函数：将英文逗号转换为中文逗号（用于显示）
-        function toChineseComma(value) {
-            if (!value || typeof value !== 'string') return value || '';
-            return value.replace(/,/g, '，');
-        }
-
         // API 调用封装 - 带防抖
         function apiGet(url, params = {}) {
             // 将 params 序列化后加入 key，确保不同参数的请求不会被合并

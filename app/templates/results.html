@@ -80,18 +80,23 @@
 {%- if rowtitle_mapping %}
 {%- for field_seq, field_info in rowtitle_mapping.items()|sort %}
 {%- set field_id = field_info.field_id %}
+{%- set field_type = field_info.field_type %}
 {%- set options = field_info.options %}
 {%- set raw_value = p[field_id] or '' %}
 {%- if options and raw_value and raw_value in options %}
                             <td>{{ options[raw_value] }}</td>
+{%- elif field_type == 'tags' and raw_value %}
+                            <td>{% for tag in raw_value.split(',') %}<span class="badge bg-success me-1">{{ tag.strip() }}</span>{% endfor %}</td>
+{%- elif field_type == 'select' and raw_value %}
+                            <td>{% for t in raw_value.split(',') %}<span class="badge bg-success me-1">{{ t.strip() }}</span>{% endfor %}</td>
 {%- else %}
                             <td>{{ raw_value or '-' }}</td>
 {%- endif %}
 {%- endfor %}
 {%- else %}
                             <td>{{ p.results_title }}</td>
-                            <td><span class="badge bg-success">{{ p.results_type or '-' }}</span></td>
-                            <td>{{ p.results_raw or '-' }}</td>
+                            <td>{% if p.results_type %}{% for t in p.results_type.split(',') %}<span class="badge bg-success me-1">{{ t.strip() }}</span>{% endfor %}{% else %}-{% endif %}</td>
+                            <td>{% if p.results_raw %}{% for tag in p.results_raw.split(',') %}<span class="badge bg-success me-1">{{ tag.strip() }}</span>{% endfor %}{% else %}-{% endif %}</td>
 {%- endif %}
                             <td>{{ p.created_at[:10] if p.created_at is string and p.created_at|length > 10 else (p.created_at if p.created_at else '-') }}</td>
                             <td>
@@ -207,6 +212,7 @@
         field_seq: parseInt(seq),
         field_id: info.field_id,
         field_name: info.field_name,
+        field_type: info.field_type,
         field_options: Object.entries(info.options || {}).map(([value, label]) => ({ value, label }))
     })).sort((a, b) => a.field_seq - b.field_seq);
 
@@ -313,23 +319,17 @@
                     const fieldId = field.field_id;
                     let fieldValue = p[fieldId] || '-';
                     
-                    // 处理多值字段显示
+                    // 处理 select 类型渲染为 badges
                     if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
                         const values = fieldValue.split(',').map(v => v.trim());
-                        const labels = values.map(v => {
-                            const opt = (field.field_options || []).find(o => o.value === v);
-                            return opt ? opt.label : v;
-                        });
-                        fieldValue = labels.join(', ');
+                        fieldValue = values.map(v => `<span class="badge bg-success me-1">${v}</span>`).join('');
                     }
                     
                     // 特殊字段样式
-                    if (fieldId === 'results_type') {
-                        fieldValue = `<span class="badge bg-success">${fieldValue}</span>`;
-                    } else if (fieldId === 'results_raw' && fieldValue !== '-') {
-                        // 转换为中文逗号后显示
-                        const displayValue = toChineseComma(fieldValue);
-                        fieldValue = displayValue.split(',').map(id => `<code>${id.trim()}</code>`).join(', ');
+                    if (fieldId === 'results_raw' && fieldValue !== '-') {
+                        // tags 类型直接用英文逗号分割渲染为 badges
+                        const tags = fieldValue.split(',').map(id => `<span class="badge bg-success me-1">${id.trim()}</span>`).join('');
+                        fieldValue = tags;
                     }
                     
                     html += `<td>${fieldValue}</td>`;
@@ -634,8 +634,15 @@
                     const fieldId = field.field_id;
                     let fieldValue = project[fieldId] || '-';
                     
-                    // 处理多值字段显示
-                    if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
+                    // 处理特殊字段格式化
+                    if (fieldValue !== '-' && fieldId === 'results_total_size') {
+                        // 文件总大小添加单位
+                        fieldValue = formatFileSize(parseInt(fieldValue) || 0);
+                    } else if (fieldValue !== '-' && fieldId === 'results_file_count') {
+                        // 文件数量添加"个"后缀
+                        fieldValue = fieldValue + ' 个';
+                    } else if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
+                        // 处理多值字段显示
                         const values = fieldValue.split(',').map(v => v.trim());
                         const labels = values.map(v => {
                             const opt = (field.field_options || []).find(o => o.value === v);
@@ -662,19 +669,13 @@
                         // link 类型显示为超链接
                         displayValue = `<a href="${fieldValue}" target="_blank" class="text-break">${fieldValue}</a>`;
                     } else if (fieldValue !== '-' && field.field_type === 'tags') {
-                        // tags 类型用标签云显示（先转换为中文逗号，再分割）
-                        const displayCommaValue = toChineseComma(fieldValue);
-                        const tags = (displayCommaValue || '').split(',').map(k => k.trim()).filter(k => k);
+                        // tags 类型用标签云显示（直接用英文逗号分割）
+                        const tags = (fieldValue || '').split(',').map(k => k.trim()).filter(k => k);
                         displayValue = tags.map(k => `<span class="badge bg-success me-1 mb-1">${k}</span>`).join('');
                     } else if (fieldValue !== '-' && (field.field_type === 'select' || field.field_type === 'multi_select')) {
-                        // 下拉选择框的 value 转换为 label（先转换为中文逗号）
-                        const displayCommaValue = toChineseComma(fieldValue);
-                        const values = displayCommaValue.split(',').map(v => v.trim());
-                        const labels = values.map(v => {
-                            const opt = (field.field_options || []).find(o => o.value === v);
-                            return opt ? opt.label : v;
-                        });
-                        displayValue = labels.join(', ');
+                        // select 类型渲染为 badges
+                        const labels = fieldValue.split(',').map(v => v.trim()).filter(v => v);
+                        displayValue = labels.map(v => `<span class="badge bg-success me-1 mb-1">${v}</span>`).join('');
                     }
                     
                     html += `

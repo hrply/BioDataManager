@@ -1,0 +1,15 @@
+{
+  "test_round": 2,
+  "test_time": "2026-01-25T15:05:20.447956",
+  "environment": "container",
+  "base_url": "http://localhost:8000",
+  "passed": 13,
+  "failed": 1,
+  "errors": [
+    [
+      "导入到已有项目",
+      "无项目ID，跳过测试"
+    ]
+  ],
+  "success": false
+}

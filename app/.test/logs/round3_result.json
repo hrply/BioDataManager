@@ -1,0 +1,11 @@
+{
+  "test_round": 3,
+  "test_time": "2026-01-25T15:07:44.800725",
+  "environment": "container",
+  "base_url": "http://localhost:8000",
+  "passed": 18,
+  "failed": 0,
+  "warnings": 3,
+  "errors": [],
+  "success": true
+}

@@ -134,6 +134,7 @@ def build_rowtitle_mapping(fields: list, rowtitle_config: list) -> dict:
             mapping[field_seq] = {
                 'field_id': field.get('field_id', ''),
                 'field_name': field.get('field_name', ''),
+                'field_type': field.get('field_type', 'text'),
                 'options': options_dict
             }
     return mapping
@@ -968,9 +969,10 @@ def api_download_files():
         memory_file = io.BytesIO()
         with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
             for f in files:
-                file_path = Path('/bio') / f['file_path'] / f['file_name']
+                # db.query 返回元组，需要用索引访问
+                file_path = Path('/bio') / f[1] / f[2]
                 if file_path.exists():
-                    zf.write(str(file_path), f['file_name'])
+                    zf.write(str(file_path), f[2])
         
         memory_file.seek(0)
         
