@@ -454,6 +454,12 @@
         let currentRowFields = [];
 
         fields.forEach(function(field, index) {
+            // 过滤掉已硬编码的字段
+            const excludedFields = ['raw_id', 'raw_title', 'results_id', 'results_title'];
+            if (excludedFields.includes(field.field_id)) {
+                return;
+            }
+            
             const fieldId = 'project-' + field.field_id;
             const requiredMark = field.field_necessary ? '<span class="text-danger">*</span>' : '';
             const placeholder = field.field_placeholder || '2'; // 1=单列, 2=双列
