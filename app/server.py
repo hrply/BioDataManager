@@ -896,20 +896,24 @@ def api_delete_files():
         # 查询要删除的文件信息
         placeholders = ','.join(['%s'] * len(file_ids))
         files = db.query(f"""
-            SELECT id, file_path, file_name 
+            SELECT id, file_path, file_name, file_project_type, file_project_id 
             FROM file_record 
             WHERE id IN ({placeholders})
         """, file_ids)
-        
+
         if not files:
             return jsonify({'success': False, 'message': '未找到要删除的文件'}), 404
+        
+        # 记录需要更新计数的项目
+        projects_to_update = set()
         
         # 移动文件到回收站
         recycle_base = Path('/bio') / 'recycle'
         for f in files:
-            src_path = Path('/bio') / f['file_path'] / f['file_name']
-            dst_dir = recycle_base / f['file_path']
-            dst_path = dst_dir / f['file_name']
+            # f 是元组: (id, file_path, file_name, file_project_type, file_project_id)
+            src_path = Path('/bio') / f[1] / f[2]
+            dst_dir = recycle_base / f[1]
+            dst_path = dst_dir / f[2]
             
             # 创建目标目录
             dst_dir.mkdir(parents=True, exist_ok=True)
@@ -918,12 +922,26 @@ def api_delete_files():
             if src_path.exists():
                 import shutil
                 shutil.move(str(src_path), str(dst_path))
+            
+            # 记录需要更新的项目
+            if f[3] and f[4]:
+                projects_to_update.add((f[3], f[4]))
         
         # 删除数据库记录
         db.execute(f"""
             DELETE FROM file_record 
             WHERE id IN ({placeholders})
         """, file_ids)
+        
+        # 更新项目文件计数
+        db_mgr = get_db_manager()
+        config_mgr = get_config_manager()
+        backend = BioDataManager(db_mgr, config_mgr)
+        for proj_type, proj_id in projects_to_update:
+            if proj_type == 'raw':
+                backend._update_raw_file_count(proj_id)
+            elif proj_type == 'result':
+                backend._update_result_file_count(proj_id)
         
         return jsonify({
             'success': True,

@@ -1,0 +1,56 @@
+{
+  "test_run": {
+    "timestamp": "2026-01-26T22:38:28.780865",
+    "module": "文件管理",
+    "test_type": "api",
+    "test_file": ".test/api_tests/test_file_deletion.py",
+    "run_mode": "port",
+    "container_name": "biodata-manager",
+    "http_port": "20425",
+    "api_port": "20425"
+  },
+  "results": {
+    "total": 5,
+    "passed": 3,
+    "failed": 1,
+    "skipped": 1
+  },
+  "test_cases": [
+    {
+      "id": "TC_FILE_DEL_001",
+      "name": "健康检查",
+      "status": "passed",
+      "duration_ms": 1.91,
+      "message": "服务正常运行"
+    },
+    {
+      "id": "TC_FILE_DEL_002",
+      "name": "缺少file_ids参数",
+      "status": "failed",
+      "duration_ms": 1.63,
+      "message": "期望状态码 400，实际 200"
+    },
+    {
+      "id": "TC_FILE_DEL_003",
+      "name": "空文件ID列表",
+      "status": "passed",
+      "duration_ms": 1.67,
+      "message": "正确返回400错误"
+    },
+    {
+      "id": "TC_FILE_DEL_004",
+      "name": "删除不存在的文件",
+      "status": "passed",
+      "duration_ms": 3.11,
+      "message": "正确返回404"
+    },
+    {
+      "id": "TC_FILE_DEL_005",
+      "name": "删除有效文件ID",
+      "status": "skipped",
+      "duration_ms": 0,
+      "message": "无法创建测试数据，跳过此测试"
+    }
+  ],
+  "failures": []
+}

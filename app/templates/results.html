@@ -103,6 +103,9 @@
                                 <button class="btn btn-outline-success btn-sm me-1" onclick="viewDetail('{{ p.results_id }}')" title="查看详情">
                                     <i class="bi bi-eye"></i>
                                 </button>
+                                <button class="btn btn-outline-warning btn-sm me-1" onclick="editProject('{{ p.results_id }}')" title="编辑项目">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
                                 <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('{{ p.results_id }}')" title="删除">
                                     <i class="bi bi-trash"></i>
                                 </button>
@@ -193,6 +196,27 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑项目模态框 -->
+<div class="modal fade" id="edit-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="edit-title">编辑项目</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="edit-content">
+                <!-- 编辑内容由JS动态填充 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveEditProject()">
+                    <i class="bi bi-check-lg me-1"></i>保存
+                </button>
             </div>
         </div>
     </div>
@@ -351,6 +375,9 @@
                     <td>
                         <button class="btn btn-outline-success btn-sm me-1" onclick="viewDetail('${p.results_id}')" title="查看详情">
                             <i class="bi bi-eye"></i>
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm me-1" onclick="editProject('${p.results_id}')" title="编辑项目">
+                            <i class="bi bi-pencil"></i>
                         </button>
                         <button class="btn btn-outline-danger btn-sm" onclick="deleteProject('${p.results_id}')" title="删除">
                             <i class="bi bi-trash"></i>
@@ -704,6 +731,138 @@
             
             $('#detail-content').html(html);
                     new bootstrap.Modal($('#detail-modal')).show();
+        });
+    }
+
+    // 编辑项目
+    function editProject(id) {
+        $('#edit-title').text(`编辑项目 - ${id}`);
+        $('#edit-content').html('<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>');
+        new bootstrap.Modal($('#edit-modal')).show();
+        
+        apiGet('/api/project', {id: id}).then(function(res) {
+            if (res.success && res.project) {
+                const p = res.project;
+                
+                apiGet('/api/metadata/fields', { table: 'result' }).then(function(fieldRes) {
+                    let html = `<form id="edit-project-form">
+                        <input type="hidden" name="results_id" value="${p.results_id}">`;
+                    
+                    if (fieldRes.success && fieldRes.fields) {
+                        // 按 field_seq 排序字段
+                        const sortedFields = fieldRes.fields.sort((a, b) => a.field_seq - b.field_seq);
+                        
+                        // 过滤掉硬编码字段
+                        const editableFields = sortedFields.filter(f => 
+                            !['raw_id', 'raw_title', 'results_id', 'results_title', 'created_at'].includes(f.field_id)
+                        );
+                        
+                        // 保存字段配置供保存时使用
+                        window.editProjectFields = editableFields;
+                        
+                        let colIndex = 0;
+                        const colsPerRow = 2;
+                        
+                        editableFields.forEach(function(field, index) {
+                            const fieldId = 'edit-' + field.field_id;
+                            let fieldValue = p[field.field_id] || '';
+                            if (fieldValue === null || fieldValue === undefined) fieldValue = '';
+                            
+                            const requiredMark = field.field_necessary ? '<span class="text-danger">*</span>' : '';
+                            
+                            // 开始新行
+                            if (colIndex === 0) {
+                                html += '<div class="row mb-3">';
+                            }
+                            
+                            // 根据 field_type 生成表单控件
+                            let inputHtml = '';
+                            if (field.field_type === 'select') {
+                                // 下拉选择框
+                                inputHtml = `<select class="form-select" id="${fieldId}" name="${field.field_id}">
+                                    <option value="">请选择...</option>
+                                    ${(field.field_options || []).map(function(opt) {
+                                        const val = opt.value !== undefined ? opt.value : opt;
+                                        const label = opt.label !== undefined ? opt.label : opt;
+                                        const selected = fieldValue.split(',').map(v => v.trim()).includes(String(val)) ? 'selected' : '';
+                                        return `<option value="${val}" ${selected}>${label}</option>`;
+                                    }).join('')}
+                                </select>`;
+                            } else if (field.field_type === 'tags') {
+                                // 标签输入框
+                                inputHtml = `<input type="text" class="form-control" id="${fieldId}" name="${field.field_id}" value="${fieldValue}" placeholder="多个值用逗号分隔">`;
+                            } else if (field.field_type === 'textarea') {
+                                // 文本域
+                                inputHtml = `<textarea class="form-control" id="${fieldId}" name="${field.field_id}" rows="3">${fieldValue}</textarea>`;
+                            } else if (field.field_type === 'link') {
+                                // 链接
+                                inputHtml = `<input type="url" class="form-control" id="${fieldId}" name="${field.field_id}" value="${fieldValue}" placeholder="请输入链接">`;
+                            } else {
+                                // 文本输入框
+                                inputHtml = `<input type="text" class="form-control" id="${fieldId}" name="${field.field_id}" value="${fieldValue}" placeholder="请输入${field.field_name}">`;
+                            }
+                            
+                            const colClass = colsPerRow === 2 ? 'col-md-6' : 'col-12';
+                            html += `
+                                <div class="${colClass}">
+                                    <label class="form-label">${field.field_name} ${requiredMark}</label>
+                                    ${inputHtml}
+                                </div>
+                            `;
+                            
+                            colIndex++;
+                            
+                            // 结束行
+                            if (colIndex === colsPerRow || index === editableFields.length - 1) {
+                                html += '</div>';
+                                colIndex = 0;
+                            }
+                        });
+                    }
+                    
+                    html += '</form>';
+                    $('#edit-content').html(html);
+                });
+            } else {
+                showToast('获取项目信息失败', 'error');
+            }
+        });
+    }
+
+    // 保存编辑后的项目
+    function saveEditProject() {
+        const form = document.getElementById('edit-project-form');
+        if (!form) return;
+        
+        const formData = new FormData(form);
+        const data = {
+            table: 'result',
+            results_id: formData.get('results_id')
+        };
+        
+        // 收集所有字段数据
+        const fieldRes = window.editProjectFields || [];
+        fieldRes.forEach(function(field) {
+            const fieldId = 'edit-' + field.field_id;
+            const el = document.getElementById(fieldId);
+            if (el) {
+                let value = el.value || '';
+                // 规范化分隔符
+                value = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
+                data[field.field_id] = value;
+            }
+        });
+        
+        apiPut('/api/projects/result/' + data.results_id, data).then(function(res) {
+            if (res.success) {
+                showToast('项目已更新');
+                bootstrap.Modal.getInstance($('#edit-modal')).hide();
+                loadProjects();
+            } else {
+                showToast(res.message || '保存失败', 'error');
+            }
+        }).catch(function(err) {
+            showToast('保存失败: ' + (err.responseJSON?.message || err.statusText), 'error');
         });
     }
 

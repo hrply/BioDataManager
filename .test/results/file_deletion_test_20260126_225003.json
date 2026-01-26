@@ -1,0 +1,32 @@
+{
+  "total": 5,
+  "passed": 5,
+  "failed": 0,
+  "tests": [
+    {
+      "id": "TC01",
+      "name": "创建测试文件",
+      "status": "passed"
+    },
+    {
+      "id": "TC02",
+      "name": "创建数据库记录",
+      "status": "passed"
+    },
+    {
+      "id": "TC03",
+      "name": "删除API调用",
+      "status": "passed"
+    },
+    {
+      "id": "TC04",
+      "name": "文件在回收站",
+      "status": "passed"
+    },
+    {
+      "id": "TC05",
+      "name": "原文件删除",
+      "status": "passed"
+    }
+  ]
+}

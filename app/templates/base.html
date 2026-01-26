@@ -345,14 +345,19 @@
             }, 500);
         }
 
-        function apiDelete(url) {
-            const key = `DELETE:${url}`;
+        function apiDelete(url, data = null) {
+            const key = `DELETE:${url}${data ? ':' + JSON.stringify(data) : ''}`;
             return requestDebounce.debounce(key, function() {
                 showLoading();
-                return $.ajax({
+                const ajaxConfig = {
                     url: url,
-                    type: 'DELETE'
-                }).done(hideLoading);
+                    type: 'DELETE',
+                    contentType: 'application/json'
+                };
+                if (data) {
+                    ajaxConfig.data = JSON.stringify(data);
+                }
+                return $.ajax(ajaxConfig).done(hideLoading);
             }, 500);
         }
 

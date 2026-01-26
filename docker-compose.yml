@@ -28,6 +28,7 @@ services:
       - /ssd/bioraw/raw_data:/bio/rawdata:rw
       - /ssd/bioraw/downloads:/bio/downloads:rw
       - /ssd/bioraw/results:/bio/results:rw
+      - /ssd/bioraw/recycle:/bio/recycle:rw
       - ./app:/app:rw
     restart: unless-stopped
     depends_on:
