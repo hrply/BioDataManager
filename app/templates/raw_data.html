@@ -471,7 +471,20 @@
     // 渲染新建项目字段
     function renderNewProjectFields(fields, containerId) {
         const container = $('#' + containerId);
-        if (fields.length === 0) {
+        
+        // 1. 过滤掉已硬编码的字段
+        let filteredFields = fields.filter(f => 
+            !['raw_id', 'raw_title', 'results_id', 'results_title'].includes(f.field_id)
+        );
+        
+        // 2. 按 field_seq 排序
+        filteredFields.sort((a, b) => a.field_seq - b.field_seq);
+        
+        // 3. 分组：双列组(placeholder=2)在前，单列组(placeholder=1)在后
+        const doubleColFields = filteredFields.filter(f => (f.field_placeholder || '2') === '2');
+        const singleColFields = filteredFields.filter(f => f.field_placeholder === '1');
+        
+        if (filteredFields.length === 0) {
             container.html('');
             return;
         }
@@ -480,78 +493,73 @@
         let colIndex = 0;
         let currentRowFields = [];
 
-        fields.forEach(function(field, index) {
-            // 过滤掉已硬编码的字段
-            const excludedFields = ['raw_id', 'raw_title', 'results_id', 'results_title'];
-            if (excludedFields.includes(field.field_id)) {
-                return;
-            }
-            
+        // 4. 先渲染双列字段
+        doubleColFields.forEach(function(field, index) {
             const fieldId = 'project-' + field.field_id;
             const requiredMark = field.field_necessary ? '<span class="text-danger">*</span>' : '';
-            const placeholder = field.field_placeholder || '2'; // 1=单列, 2=双列
             const fieldOptions = field.field_options || [];
             
-            // 根据 placeholder 决定布局
-            if (placeholder === '1') {
-                // 单列：先关闭当前行
-                if (currentRowFields.length > 0) {
-                    html += '<div class="row mb-3">' + currentRowFields.join('') + '</div>';
-                    currentRowFields = [];
-                    colIndex = 0;
-                }
-                // 生成单列表单控件
-                let inputHtml = '';
-                if (field.field_type === 'select') {
-                    // 新建/编辑项目使用 multi_select 模式
-                    inputHtml = `<select class="form-select" id="${fieldId}" multiple>
-                        ${fieldOptions.map(function(opt) {
-                            const val = opt.value !== undefined ? opt.value : opt;
-                            const label = opt.label !== undefined ? opt.label : opt;
-                            return `<option value="${val}">${label}</option>`;
-                        }).join('')}
-                    </select>`;
-                } else if (field.field_type === 'textarea') {
-                    inputHtml = `<textarea class="form-control" id="${fieldId}" rows="3"></textarea>`;
-                } else {
-                    inputHtml = `<input type="text" class="form-control" id="${fieldId}">`;
-                }
-                html += `<div class="mb-3">
-                    <label class="form-label">${field.field_name} ${requiredMark}</label>
-                    ${inputHtml}
-                </div>`;
+            let inputHtml = '';
+            if (field.field_type === 'select') {
+                inputHtml = `<select class="form-select" id="${fieldId}" multiple>
+                    ${fieldOptions.map(function(opt) {
+                        const val = opt.value !== undefined ? opt.value : opt;
+                        const label = opt.label !== undefined ? opt.label : opt;
+                        return `<option value="${val}">${label}</option>`;
+                    }).join('')}
+                </select>`;
+            } else if (field.field_type === 'textarea') {
+                inputHtml = `<textarea class="form-control" id="${fieldId}" rows="3"></textarea>`;
             } else {
-                // 双列模式
-                let inputHtml = '';
-                if (field.field_type === 'select') {
-                    inputHtml = `<select class="form-select" id="${fieldId}" multiple>
-                        ${fieldOptions.map(function(opt) {
-                            const val = opt.value !== undefined ? opt.value : opt;
-                            const label = opt.label !== undefined ? opt.label : opt;
-                            return `<option value="${val}">${label}</option>`;
-                        }).join('')}
-                    </select>`;
-                } else if (field.field_type === 'textarea') {
-                    inputHtml = `<textarea class="form-control" id="${fieldId}" rows="3"></textarea>`;
-                } else {
-                    inputHtml = `<input type="text" class="form-control" id="${fieldId}">`;
-                }
-                currentRowFields.push(`<div class="col-md-6">
-                    <label class="form-label">${field.field_name} ${requiredMark}</label>
-                    ${inputHtml}
-                </div>`);
-                colIndex++;
+                inputHtml = `<input type="text" class="form-control" id="${fieldId}">`;
+            }
+            
+            currentRowFields.push(`<div class="col-md-6">
+                <label class="form-label">${field.field_name} ${requiredMark}</label>
+                ${inputHtml}
+            </div>`);
+            colIndex++;
 
-                // 每2个字段或最后一个字段时关闭行
-                if (colIndex === 2 || index === fields.length - 1) {
-                    html += '<div class="row mb-3">' + currentRowFields.join('') + '</div>';
-                    currentRowFields = [];
-                    colIndex = 0;
-                }
+            // 每2个字段或最后一个双列字段时关闭行
+            if (colIndex === 2 || index === doubleColFields.length - 1) {
+                html += '<div class="row mb-3">' + currentRowFields.join('') + '</div>';
+                currentRowFields = [];
+                colIndex = 0;
             }
         });
 
+        // 5. 再渲染单列字段
+        singleColFields.forEach(function(field) {
+            const fieldId = 'project-' + field.field_id;
+            const requiredMark = field.field_necessary ? '<span class="text-danger">*</span>' : '';
+            const fieldOptions = field.field_options || [];
+            
+            let inputHtml = '';
+            if (field.field_type === 'select') {
+                inputHtml = `<select class="form-select" id="${fieldId}" multiple>
+                    ${fieldOptions.map(function(opt) {
+                        const val = opt.value !== undefined ? opt.value : opt;
+                        const label = opt.label !== undefined ? opt.label : opt;
+                        return `<option value="${val}">${label}</option>`;
+                    }).join('')}
+                </select>`;
+            } else if (field.field_type === 'textarea') {
+                inputHtml = `<textarea class="form-control" id="${fieldId}" rows="3"></textarea>`;
+            } else {
+                inputHtml = `<input type="text" class="form-control" id="${fieldId}">`;
+            }
+            html += `<div class="mb-3">
+                <label class="form-label">${field.field_name} ${requiredMark}</label>
+                ${inputHtml}
+            </div>`;
+        });
+
         container.html(html);
+        
+        // 初始化 Bootstrap Select
+        $('#' + containerId).find('select.form-select').each(function() {
+            initBootstrapSelect(this);
+        });
     }
 
     // 保存项目

@@ -8,6 +8,8 @@
     <link href="{{ url_for('serve_static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <!-- Bootstrap Icons (本地存储) -->
     <link href="{{ url_for('serve_static', filename='css/bootstrap-icons.css') }}" rel="stylesheet">
+    <!-- Bootstrap Select CSS (本地存储) -->
+    <link href="{{ url_for('serve_static', filename='css/bootstrap-select.min.css') }}" rel="stylesheet">
     <style>
         :root {
             --primary-color: #2c3e50;
@@ -149,6 +151,34 @@
             color: white;
             padding: 1.5rem 0;
             margin-top: 3rem;
+        }
+        
+        /* Bootstrap Select 样式调整：与其他输入框一致 */
+        .bootstrap-select {
+            width: 100% !important;
+        }
+        .bootstrap-select > .dropdown-toggle {
+            width: 100%;
+            height: calc(1.5em + 0.75rem + 2px);
+            padding: 0.375rem 0.75rem;
+            font-size: 1rem;
+            font-weight: 400;
+            line-height: 1.5;
+            color: #212529;
+            border-radius: 0.375rem;
+            border: 1px solid #ced4da;
+            background-color: #fff;
+        }
+        .bootstrap-select > .dropdown-toggle:focus,
+        .bootstrap-select > .dropdown-toggle:active {
+            border-color: #86b7fe;
+            box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+        }
+        .bootstrap-select .dropdown-menu {
+            font-size: 1rem;
+        }
+        .bootstrap-select .dropdown-menu .dropdown-item {
+            padding: 0.375rem 1rem;
         }
     </style>
     {% block extra_css %}{% endblock %}
@@ -372,7 +402,21 @@
                 return new bootstrap.Tooltip(tooltipTriggerEl);
             });
         });
+
+        // 初始化 Bootstrap Select
+        function initBootstrapSelect(selector) {
+            $(selector).selectpicker({
+                noneSelectedText: '请选择...',
+                countSelectedText: '已选 {0} 项',
+                selectedTextFormat: 'count > 3',
+                liveSearch: true,
+                liveSearchPlaceholder: '搜索...',
+                size: 'auto'
+            });
+        }
     </script>
+    <!-- Bootstrap Select JS (本地存储) -->
+    <script src="{{ url_for('serve_static', filename='js/bootstrap-select.min.js') }}"></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>
