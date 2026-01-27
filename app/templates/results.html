@@ -257,14 +257,21 @@
 
     // 加载筛选选项和关联数据
     function loadFilterOptions() {
+        // 存储 value -> label 映射，用于筛选时转换
+        window.filterValueToLabelMap = {};
+        
         // 加载结果类型选项（只获取 result 类型字段）
         apiGet('/api/metadata/config', { table: 'result' }).then(function(res) {
             if (res.success && res.config) {
-                // 直接使用返回的 result 字段，无需前端过滤
-                
                 resultFields.forEach(function(field) {
                     if (field.field_type === 'select') {
                         const options = field.field_options || [];
+                        // 建立 value -> label 映射
+                        window.filterValueToLabelMap[field.field_id] = {};
+                        options.forEach(function(opt) {
+                            window.filterValueToLabelMap[field.field_id][opt.value] = opt.label;
+                        });
+                        
                         const $select = $(`#project-${field.field_id}`);
                         const $filter = $(`#filter-${field.field_id}`);
                         
@@ -893,17 +900,23 @@
 
     // 应用筛选
     function applyFilter() {
-        const type = $('#filter-results_type').val();
+        // 获取选中的筛选值（value）
+        const typeValue = $('#filter-results_type').val();
         const raw = $('#filter-results_raw').val();
-
+        
+        // API 返回的是 label，需要将筛选的 value 转换为 label
+        const type = typeValue && window.filterValueToLabelMap?.results_type?.[typeValue] ? window.filterValueToLabelMap.results_type[typeValue] : typeValue;
+        
         apiGet('/api/projects', {table: 'result'}).then(function(res) {
             if (res.success) {
                 let filtered = res.data || [];
 
                 if (type) {
-                    filtered = filtered.filter(p => p.results_type === type);
+                    // 部分匹配（支持多值字段）
+                    filtered = filtered.filter(p => p.results_type && p.results_type.includes(type));
                 }
                 if (raw) {
+                    // 精确匹配
                     filtered = filtered.filter(p => p.results_raw && p.results_raw.includes(raw));
                 }
 

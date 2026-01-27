@@ -301,11 +301,18 @@
     function loadFilterOptions() {
         apiGet('/api/metadata/config', { table: 'raw' }).then(function(res) {
             if (res.success && res.config) {
-                // 直接使用返回的 raw 字段，无需前端过滤
+                // 存储 value -> label 映射，用于筛选时转换
+                window.filterValueToLabelMap = {};
                 
                 rawFields.forEach(function(field) {
                     if (field.field_type === 'select' || field.field_type === 'multi_select') {
                         const options = field.field_options || [];
+                        // 建立 value -> label 映射
+                        window.filterValueToLabelMap[field.field_id] = {};
+                        options.forEach(function(opt) {
+                            window.filterValueToLabelMap[field.field_id][opt.value] = opt.label;
+                        });
+                        
                         const $select = $(`#project-${field.field_id}`);
                         const $filter = $(`#filter-${field.field_id}`);
                         
@@ -974,34 +981,79 @@
         loadProjects();
     }
 
-    // 应用筛选
-    function applyFilter() {
-        const type = $('#filter-raw_type').val();
-        const species = $('#filter-raw_species').val();
-        const tissue = $('#filter-raw_tissue').val();
-        
-        apiGet('/api/projects', {table: 'raw'}).then(function(res) {
-            if (res.success) {
-                let filtered = res.data || [];
-                
-                if (type) {
-                    filtered = filtered.filter(p => p.raw_type === type);
-                }
-                if (species) {
-                    filtered = filtered.filter(p => p.raw_species === species);
-                }
-                if (tissue) {
-                    filtered = filtered.filter(p => p.raw_tissue && p.raw_tissue.includes(tissue));
-                }
-                
-                projects = filtered;
-                currentPage = 1;
-                renderProjects();
-                showToast(`筛选完成，找到 ${projects.length} 条记录`, 'success');
-            }
-        }).catch(function(err) {
-            showToast('筛选失败', 'error');
-        });
-    }
-</script>
+                    // 应用筛选
+
+                function applyFilter() {
+
+                    // 获取选中的筛选值（value）
+
+                    const typeValue = $('#filter-raw_type').val();
+
+                                        const speciesValue = $('#filter-raw_species').val();
+
+                                        const tissueValue = $('#filter-raw_tissue').val();
+
+                    
+
+                                        // API 返回的是 label，需要将筛选的 value 转换为 label
+
+                                        const type = typeValue && window.filterValueToLabelMap?.raw_type?.[typeValue] ? window.filterValueToLabelMap.raw_type[typeValue] : typeValue;
+
+                                        const species = speciesValue && window.filterValueToLabelMap?.raw_species?.[speciesValue] ? window.filterValueToLabelMap.raw_species[speciesValue] : speciesValue;
+
+                                        const tissue = tissueValue && window.filterValueToLabelMap?.raw_tissue?.[tissueValue] ? window.filterValueToLabelMap.raw_tissue[tissueValue] : tissueValue;
+
+                    
+
+                                        apiGet('/api/projects', {table: 'raw'}).then(function(res) {
+
+                                            if (res.success) {
+
+                                                let filtered = res.data || [];
+
+                    
+
+                                                if (type) {
+
+                                                    // 部分匹配（支持多值字段，如 "SUMO PTMome,转录组"）
+
+                                                    filtered = filtered.filter(p => p.raw_type && p.raw_type.includes(type));
+
+                                                }
+
+                                                if (species) {
+
+                                                    // 精确匹配（单值字段）
+
+                                                    filtered = filtered.filter(p => p.raw_species === species);
+
+                                                }
+
+                                                if (tissue) {
+
+                                                    // 部分匹配（可能是多值字段）
+
+                                                    filtered = filtered.filter(p => p.raw_tissue && p.raw_tissue.includes(tissue));
+
+                                                }
+
+                            
+
+                            projects = filtered;
+
+                            currentPage = 1;
+
+                            renderProjects();
+
+                            showToast(`筛选完成，找到 ${projects.length} 条记录`, 'success');
+
+                        }
+
+                    }).catch(function(err) {
+
+                        showToast('筛选失败', 'error');
+
+                    });
+
+                }</script>
 {% endblock %}
