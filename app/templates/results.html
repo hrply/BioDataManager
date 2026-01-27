@@ -774,28 +774,28 @@
                             const fieldId = 'edit-' + field.field_id;
                             let fieldValue = p[field.field_id] || '';
                             if (fieldValue === null || fieldValue === undefined) fieldValue = '';
-                            
+
                             const requiredMark = field.field_necessary ? '<span class="text-danger">*</span>' : '';
-                            
+
                             // 开始新行
                             if (colIndex === 0) {
                                 html += '<div class="row mb-3">';
                             }
-                            
+
                             // 根据 field_type 生成表单控件
                             let inputHtml = '';
                             if (field.field_type === 'select') {
-                                // 下拉选择框
-                                inputHtml = `<select class="form-select" id="${fieldId}" name="${field.field_id}">
-                                    <option value="">请选择...</option>
+                                // 下拉选择框 - 支持多选，使用 bootstrap-select
+                                const fieldLabels = fieldValue.split(',').map(v => v.trim()).filter(v => v);
+                                inputHtml = `<select class="form-select selectpicker" id="${fieldId}" name="${field.field_id}" data-live-search="true" multiple>
                                     ${(field.field_options || []).map(function(opt) {
                                         const val = opt.value !== undefined ? opt.value : opt;
                                         const label = opt.label !== undefined ? opt.label : opt;
-                                        const selected = fieldValue.split(',').map(v => v.trim()).includes(String(val)) ? 'selected' : '';
+                                        const selected = fieldLabels.includes(String(label)) ? 'selected' : '';
                                         return `<option value="${val}" ${selected}>${label}</option>`;
                                     }).join('')}
                                 </select>`;
-                            } else if (field.field_type === 'tags') {
+                            } else if (field.field_type === 'multi_select') {
                                 // 标签输入框
                                 inputHtml = `<input type="text" class="form-control" id="${fieldId}" name="${field.field_id}" value="${fieldValue}" placeholder="多个值用逗号分隔">`;
                             } else if (field.field_type === 'textarea') {
@@ -829,6 +829,13 @@
                     
                     html += '</form>';
                     $('#edit-content').html(html);
+                    
+                    // 初始化 bootstrap-select 多选组件
+                    $('.selectpicker').selectpicker({
+                        noneSelectedText: '请选择...',
+                        selectAllText: '全选',
+                        deselectAllText: '取消全选'
+                    });
                 });
             } else {
                 showToast('获取项目信息失败', 'error');
@@ -853,7 +860,13 @@
             const fieldId = 'edit-' + field.field_id;
             const el = document.getElementById(fieldId);
             if (el) {
-                let value = el.value || '';
+                let value = '';
+                // bootstrap-select 多选用 val() 返回数组（已经是 value）
+                if ($(el).hasClass('selectpicker') && $(el).attr('multiple') !== null) {
+                    value = ($(el).val() || []).join(',');
+                } else {
+                    value = el.value || '';  // select 直接取 value
+                }
                 // 规范化分隔符
                 value = value.replace(/[\uFF1F\uFF0C\u003F\u002C]/g, ',');
                 data[field.field_id] = value;

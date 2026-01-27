@@ -658,7 +658,7 @@ class BioDataManager:
             result.append(file_dict)
         return result
     
-    def add_file_record(self, project_type: str, project_id: str, file_path: Path, metadata: Dict = None, ref_project_id: str = None) -> Dict:
+    def add_file_record(self, project_type: str, project_id: str, file_path: Path, metadata: Dict = None, ref_project_id: str = None, overwrite: bool = False) -> Dict:
         """添加文件记录
         
         Args:
@@ -667,6 +667,7 @@ class BioDataManager:
             file_path: 文件的完整路径
             metadata: 可选的元数据字典（如果已传入则使用，否则从数据库查询）
             ref_project_id: 关联项目编号（结果文件关联的原始数据项目）
+            overwrite: 是否覆盖已存在的文件（需要 file_project_id+file_project_type+file_path+file_name 均相同）
             
         Returns:
             Dict: {'success': bool, 'message': str, 'is_duplicate': bool}
@@ -681,18 +682,23 @@ class BioDataManager:
             except ValueError:
                 dir_path = file_path.parent
             
-            # 检查重复文件（同一项目下同名文件）
+            # 检查重复文件（同一项目、同一路径下同名文件才算真正重复）
             existing = self.db_manager.query_one("""
                 SELECT id FROM file_record 
-                WHERE file_project_type = %s AND file_project_id = %s AND file_name = %s
-            """, (project_type, project_id, file_name))
-            
+                WHERE file_project_type = %s AND file_project_id = %s AND file_path = %s AND file_name = %s
+            """, (project_type, project_id, str(dir_path), file_name))
+
             if existing:
-                return {
-                    'success': False,
-                    'message': f'存在同名文件 "{file_name}"，请修改元数据信息或文件名后重新导入',
-                    'is_duplicate': True
-                }
+                if not overwrite:
+                    return {
+                        'success': False,
+                        'message': f'文件 "{file_name}" 已存在于该路径下，是否覆盖？',
+                        'is_duplicate': True,
+                        'existing_id': existing[0]
+                    }
+                else:
+                    # 删除旧记录，保留新的
+                    self.db_manager.execute("DELETE FROM file_record WHERE id = %s", (existing[0],))
             
             # 生成 file_property
             # =================================================================
@@ -1178,7 +1184,7 @@ class BioDataManager:
             'path': str(folder)
         }
     
-    def import_download_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, data_type: str = 'raw') -> Dict:
+    def import_download_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, data_type: str = 'raw', overwrite: bool = False) -> Dict:
         """导入下载文件到项目
         
         Args:
@@ -1187,13 +1193,14 @@ class BioDataManager:
             folder_name: 源文件夹名
             metadata_override: 可选的字段值覆盖/追加（用于导入至已有项目时）
             data_type: 数据类型 ('raw' 或 'result')
+            overwrite: 是否覆盖已存在的文件
         """
         if data_type == 'raw':
-            return self._import_raw_files(project_id, files, folder_name, metadata_override)
+            return self._import_raw_files(project_id, files, folder_name, metadata_override, overwrite)
         else:
-            return self._import_result_files(project_id, files, folder_name, metadata_override)
+            return self._import_result_files(project_id, files, folder_name, metadata_override, overwrite)
     
-    def _import_raw_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None) -> Dict:
+    def _import_raw_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, overwrite: bool = False) -> Dict:
         """导入原始数据文件到项目"""
         project = self.get_raw_project_by_id(project_id)
         if not project:
@@ -1273,7 +1280,7 @@ class BioDataManager:
                         continue
                 
                 # 再添加文件记录
-                result = self.add_file_record('raw', project_id, dest_path, metadata=metadata_override)
+                result = self.add_file_record('raw', project_id, dest_path, metadata=metadata_override, overwrite=overwrite)
                 if result.get('is_duplicate'):
                     print(f"[INFO] 跳过重复文件: {file_name}")
                     duplicate_count += 1
@@ -1290,7 +1297,7 @@ class BioDataManager:
             'storage_path': str(project_path)
         }
     
-    def _import_result_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None) -> Dict:
+    def _import_result_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, overwrite: bool = False) -> Dict:
         """导入结果数据文件到项目"""
         project = self.get_result_project_by_id(project_id)
         if not project:
@@ -1387,7 +1394,7 @@ class BioDataManager:
                         continue
                 
                 # 再添加文件记录
-                result = self.add_file_record('result', project_id, dest_path, metadata=metadata_override, ref_project_id=ref_project_id)
+                result = self.add_file_record('result', project_id, dest_path, metadata=metadata_override, ref_project_id=ref_project_id, overwrite=overwrite)
                 if result.get('is_duplicate'):
                     print(f"[INFO] 跳过重复文件: {file_name}")
                     duplicate_count += 1

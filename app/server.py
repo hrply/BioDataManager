@@ -614,7 +614,17 @@ def api_scan_downloads_sync():
 
 @app.route('/api/import-download', methods=['POST'])
 def api_import_download():
-    """导入下载文件"""
+    """导入下载文件
+    
+    Args:
+        project_id: 目标项目ID（可选）
+        files: 要导入的文件列表
+        project_info: 新项目信息（可选，用于创建新项目）
+        folder_name: 下载目录中的文件夹名
+        metadata_override: 元数据覆盖值
+        data_type: 数据类型（raw 或 result）
+        overwrite: 是否覆盖已存在的文件（可选，默认为false）
+    """
     try:
         data = request.get_json()
         project_id = data.get('project_id')
@@ -623,6 +633,7 @@ def api_import_download():
         folder_name = data.get('folder_name')
         metadata_override = data.get('metadata_override', {})
         data_type = data.get('data_type', 'raw')  # 获取数据类型：raw 或 result
+        overwrite = data.get('overwrite', False)  # 是否覆盖已存在的文件
         
         # 如果没有 project_id但有 project_info，则创建新项目
         if not project_id and project_info:
@@ -646,8 +657,8 @@ def api_import_download():
         if not project_id or not files:
             return jsonify({'success': False, 'message': '缺少参数'})
         
-        # 根据数据类型调用相应的导入函数
-        result = get_manager().import_download_files(project_id, files, folder_name, metadata_override, data_type)
+        # 根据数据类型调用相应的导入函数，传递 overwrite 参数
+        result = get_manager().import_download_files(project_id, files, folder_name, metadata_override, data_type, overwrite)
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
