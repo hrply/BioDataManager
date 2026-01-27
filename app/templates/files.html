@@ -951,13 +951,6 @@
             // 新建项目 - 使用动态表单数据
             const formData = getFormData();
             
-            // 调试日志：输出收集的表单数据
-            console.log('DEBUG formData:', JSON.stringify(formData, null, 2));
-            console.log('DEBUG metadataFields count:', metadataFields.length);
-            console.log('DEBUG isRaw:', isRaw);
-            console.log('DEBUG results_title:', formData.results_title);
-            console.log('DEBUG results_type:', formData.results_type);
-            
             // 验证必填字段
             const errors = validateFormData(formData);
             if (errors.length > 0) {
@@ -994,10 +987,7 @@
             }
             requestData.metadata_override = metadata_override;
             
-            console.log('DEBUG requestData:', JSON.stringify(requestData, null, 2));
-            
             apiPost('/api/import-download', requestData).then(function(res) {
-                console.log('DEBUG API response:', res);
                 if (res.success) {
                     showToast('导入成功');
                     $('#import-modal').modal('hide');
@@ -1078,37 +1068,7 @@
             
             requestData.metadata_override = metadata_override;
             
-            // 调试日志：显示完整请求数据
-            console.log('=== DEBUG IMPORT TO EXISTING PROJECT ===');
-            console.log('mode:', mode);
-            console.log('isRaw:', isRaw);
-            console.log('metadataFields:', metadataFields.map(f => ({id: f.field_id, seq: f.field_seq})));
-            console.log('metadata_override (before):', JSON.stringify(metadata_override, null, 2));
-            console.log('window.currentProjectResultsRaw:', window.currentProjectResultsRaw);
-            
-            // 尝试查找 results_raw 字段
-            const resultsRawField = metadataFields.find(f => f.field_id === 'results_raw');
-            console.log('resultsRawField in metadataFields:', resultsRawField ? 'found' : 'NOT FOUND');
-            if (resultsRawField) {
-                const el = $('#metadata-' + resultsRawField.field_id);
-                console.log('Element #metadata-' + resultsRawField.field_id + ' exists:', el.length > 0);
-                console.log('Element value:', el.val());
-                // 显示 HTML 结构
-                console.log('Element HTML:', el.prop('outerHTML')?.substring(0, 200));
-            }
-            
-            // 显示所有 metadata 字段的 HTML
-            console.log('All metadata fields HTML:');
-            metadataFields.forEach(f => {
-                const e = $('#metadata-' + f.field_id);
-                console.log(`  #metadata-${f.field_id}:`, e.length ? e.val() : 'NOT FOUND');
-            });
-            
-            console.log('requestData:', JSON.stringify(requestData, null, 2));
-            console.log('==========================================');
-            
             apiPost('/api/import-download', requestData).then(function(res) {
-                console.log('API response:', JSON.stringify(res, null, 2));
                 if (res.success) {
                     showToast('导入成功');
                     $('#import-modal').modal('hide');

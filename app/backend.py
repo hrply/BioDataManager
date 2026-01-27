@@ -1069,10 +1069,6 @@ class BioDataManager:
         current_value = row[0] if row[0] else ''
         current_separator = detect_separator(current_value)
         
-        print(f"[DEBUG] merge_field_value: {table_name}.{field_id} for {project_id}")
-        print(f"[DEBUG]   current_value: '{current_value}' (sep: '{current_separator}')")
-        print(f"[DEBUG]   new_value: '{new_value}'")
-        
         # 2. 合并并去重，然后排序
         if current_value:
             existing_ids = split_values(current_value, current_separator)
@@ -1091,8 +1087,6 @@ class BioDataManager:
             new_ids = split_values(new_value, ',')
             sorted_ids = sorted(new_ids, key=lambda x: x.encode('utf-8'))
             new_value_str = ','.join(sorted_ids)
-        
-        print(f"[DEBUG]   result: '{new_value_str}'")
         
         # 3. 更新数据库
         self.db_manager.execute(
