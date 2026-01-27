@@ -152,13 +152,13 @@ try:
     resp = requests.post(f"{BASE_URL}/api/projects", json={
         "table": "result",
         "result_title": "Round1测试_结果数据",
-        "results_type": "差异分析 (DEA)",
+        "results_type": "DEA",
         "results_raw": "RAW_test001,RAW_test002"
     }, timeout=10)
     if resp.status_code == 200:
         data = resp.json()
-        if data.get('success') and data.get('project', {}).get('result_id'):
-            test_result_id = data['project']['result_id']
+        if data.get('success') and data.get('project', {}).get('results_id'):
+            test_result_id = data['project']['results_id']
             result.add_pass(f"创建结果数据项目: {test_result_id}")
         else:
             result.add_fail("创建结果数据项目", f"创建失败: {data}")

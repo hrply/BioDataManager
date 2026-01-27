@@ -282,8 +282,6 @@ class DatabaseManager:
                     results_raw         VARCHAR(255) DEFAULT NULL COMMENT '关联原始数据项目编号(逗号分隔)',
                     results_description TEXT DEFAULT NULL COMMENT '项目描述',
                     results_keywords    VARCHAR(500) DEFAULT NULL COMMENT '关键词',
-                    results_DOI         VARCHAR(100) DEFAULT NULL COMMENT 'DOI号',
-                    results_db_link     VARCHAR(500) DEFAULT NULL COMMENT '数据库链接',
                     results_file_count  INT DEFAULT 0 COMMENT '关联文件数量',
                     results_total_size  BIGINT DEFAULT 0 COMMENT '文件总大小(字节)',
                     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

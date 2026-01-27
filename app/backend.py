@@ -190,8 +190,8 @@ class BioDataManager:
                 continue
             # 检查每个字符是否合法
             for char in part:
-                if char.isupper() or char.islower() or char.isdigit() or char == '_' or char == ' ':
-                    continue  # 允许的字符
+                if char.isupper() or char.islower() or char.isdigit() or char == '_' or char == ' ' or char == '-' or char == '.':
+                    continue  # 允许的字符（字母、数字、下划线、空格、连字符、点）
                 if allow_chinese and '\u4e00' <= char <= '\u9fff':
                     continue  # 允许中文字符
                 invalid_chars.add(char)
@@ -201,6 +201,65 @@ class BioDataManager:
             raise ValueError(f"{field_name} 包含无效字符 [{invalid_list}]，只允许字母、数字、下划线和英文逗号")
         
         return normalized
+    
+    def _value_to_label(self, field_id: str, value: str) -> str:
+        """将字段值转换为显示标签（value → label 转换）
+        
+        用于前端显示：将存储的 value 转换为对应的中文 label
+        例如: 'Long-Read RNAseq' -> '长读转录组'
+        """
+        if not value:
+            return value
+        
+        try:
+            options = self.config_manager.get_field_options(field_id)
+            if not options:
+                return value
+            
+            # 构建 value → label 映射
+            value_to_label = {}
+            for opt in options:
+                if isinstance(opt, dict) and 'value' in opt and 'label' in opt:
+                    value_to_label[str(opt['value'])] = str(opt['label'])
+            
+            # 多值转换（逗号分隔）
+            parts = value.split(',')
+            labels = []
+            for part in parts:
+                part = part.strip()
+                if part in value_to_label:
+                    labels.append(value_to_label[part])
+                else:
+                    labels.append(part)
+            
+            return ','.join(labels)
+        except Exception:
+            return value
+    
+    def _convert_select_values_to_labels(self, project: Dict, table: str = 'raw') -> Dict:
+        """将项目中的 select 类型字段值转换为 label 显示"""
+        if not project:
+            return project
+        
+        try:
+            # 获取所有字段配置
+            all_configs = self.config_manager.get_all_configs()
+            
+            # 筛选指定表的 select 类型字段
+            select_fields = {}
+            for config in all_configs:
+                if config.get('field_table') == table and config.get('field_type') == 'select':
+                    select_fields[config['field_id']] = True
+            
+            # 转换 select 字段
+            for field_id in select_fields:
+                if field_id in project and project[field_id]:
+                    project[field_id] = self._value_to_label(field_id, project[field_id])
+            
+        except Exception as e:
+            print(f"转换字段标签失败: {e}")
+        
+        return project
     
     # ==================== 原始数据项目管理 ====================
     
@@ -231,8 +290,8 @@ class BioDataManager:
         raw_id = self.generate_project_id('RAW')
         
         # 获取字段值
-        raw_type = data.get('raw_type', '')
-        species = data.get('raw_species', '')
+        raw_type = self._validate_comma_separated(data.get('raw_type', ''), '数据类型 (raw_type)', allow_chinese=True)
+        species = self._validate_comma_separated(data.get('raw_species', ''), '物种 (raw_species)', allow_chinese=True)
         
         # 处理多选字段
         raw_tissue_input = data.get('raw_tissue', '')
@@ -299,6 +358,8 @@ class BioDataManager:
                 'created_at': _format_datetime(row[15]),
                 'updated_at': _format_datetime(row[16])
             }
+            # 转换 select 类型字段的 value 为 label（用于前端显示）
+            project = self._convert_select_values_to_labels(project, 'raw')
             result.append(project)
         
         return result
@@ -353,6 +414,9 @@ class BioDataManager:
                 'updated_at': _format_datetime(row[16]),
                 'files': file_list
             }
+            # 转换 select 类型字段的 value 为 label（用于前端显示）
+            project = self._convert_select_values_to_labels(project, 'raw')
+            return project
         return None
     
     def update_raw_project(self, data: Dict) -> bool:
@@ -448,7 +512,7 @@ class BioDataManager:
         """创建结果数据项目"""
         results_id = self.generate_project_id('RES')
         
-        results_type = data.get('results_type', '')
+        results_type = self._validate_comma_separated(data.get('results_type', ''), '结果类型 (results_type)', allow_chinese=True)
         
         # 验证并规范化逗号分隔的字段
         raw_project_id = self._validate_comma_separated(
@@ -460,8 +524,14 @@ class BioDataManager:
             '关键词 (results_keywords)', allow_chinese=True
         )
         
-        # 解析和排序关联项目编号（用于路径）
+        # 解析和排序关联项目编号（用于路径和数据库存储）
         sorted_raw_ids = self._parse_and_sort(raw_project_id) if raw_project_id else ''
+        # 对 results_raw 字段进行排序（ASCII顺序：数字 < 大写 < 小写）
+        if raw_project_id:
+            raw_ids_list = [r.strip() for r in raw_project_id.split(',') if r.strip()]
+            sorted_raw_project_id = ','.join(sorted(raw_ids_list, key=lambda x: x.encode('utf-8')))
+        else:
+            sorted_raw_project_id = ''
         
         # 构建项目路径（新结构）
         project_path = self._build_result_project_path(
@@ -476,7 +546,7 @@ class BioDataManager:
             results_id,
             data.get('results_title', ''),
             results_type,
-            raw_project_id,  # 存储原始值（逗号分隔）
+            sorted_raw_project_id,  # 存储排序后的值
             data.get('results_description', ''),
             keywords,  # 使用验证后的结果
         ))
@@ -499,13 +569,13 @@ class BioDataManager:
                 'results_raw': row[4],
                 'results_description': row[5],
                 'results_keywords': row[6],
-                'results_DOI': row[7] or '',
-                'results_db_link': row[8] or '',
-                'results_file_count': row[9],
-                'results_total_size': row[10],
-                'created_at': _format_datetime(row[11]),
-                'updated_at': _format_datetime(row[12])
+                'results_file_count': row[7],
+                'results_total_size': row[8],
+                'created_at': _format_datetime(row[9]),
+                'updated_at': _format_datetime(row[10])
             }
+            # 转换 select 类型字段的 value 为 label（用于前端显示）
+            project = self._convert_select_values_to_labels(project, 'result')
             result.append(project)
         
         return result
@@ -548,14 +618,15 @@ class BioDataManager:
                 'results_raw': row[4],
                 'results_description': row[5],
                 'results_keywords': row[6],
-                'results_DOI': row[7] or '',
-                'results_db_link': row[8] or '',
-                'results_file_count': row[9],
-                'results_total_size': row[10],
-                'created_at': _format_datetime(row[11]),
-                'updated_at': _format_datetime(row[12]),
+                'results_file_count': row[7],
+                'results_total_size': row[8],
+                'created_at': _format_datetime(row[9]),
+                'updated_at': _format_datetime(row[10]),
                 'files': file_list
             }
+            # 转换 select 类型字段的 value 为 label（用于前端显示）
+            project = self._convert_select_values_to_labels(project, 'result')
+            return project
         return None
     
     def update_result_project(self, data: Dict) -> bool:
@@ -1065,14 +1136,14 @@ class BioDataManager:
             all_ids = existing_ids + new_ids
             # 去重（保持顺序）
             unique_ids = list(dict.fromkeys(all_ids))
-            # 排序（按字母排序）
-            sorted_ids = sorted(unique_ids)
+            # 排序（按ASCII编码排序：数字 < 大写 < 小写）
+            sorted_ids = sorted(unique_ids, key=lambda x: x.encode('utf-8'))
             # 使用数据库中原有的分隔符样式
             new_value_str = current_separator.join(sorted_ids)
         else:
-            # 无已有值，直接排序新值
+            # 无已有值，直接排序新值（按ASCII编码排序）
             new_ids = split_values(new_value, ',')
-            sorted_ids = sorted(new_ids)
+            sorted_ids = sorted(new_ids, key=lambda x: x.encode('utf-8'))
             new_value_str = ','.join(sorted_ids)
         
         print(f"[DEBUG]   result: '{new_value_str}'")

@@ -1,0 +1,112 @@
+{
+  "round": 1,
+  "timestamp": "2026-01-27T03:04:49.861966",
+  "tests": [
+    {
+      "tc_id": "TC-SRV-001",
+      "name": "服务健康检查",
+      "status": "passed",
+      "message": "服务可访问",
+      "timestamp": "2026-01-27T03:04:49.870852",
+      "details": {}
+    },
+    {
+      "tc_id": "TC-CRP-001",
+      "name": "创建原始项目-API",
+      "status": "passed",
+      "message": "创建成功: RAW_Kr83x2Qw",
+      "timestamp": "2026-01-27T03:04:49.908695",
+      "details": {
+        "project_id": "RAW_Kr83x2Qw",
+        "title": "API测试原始项目"
+      }
+    },
+    {
+      "tc_id": "TC-CRS-001",
+      "name": "创建结果项目-API",
+      "status": "passed",
+      "message": "创建成功: RES_Pv5MIe7C",
+      "timestamp": "2026-01-27T03:04:49.917452",
+      "details": {}
+    },
+    {
+      "tc_id": "TC-DL-001",
+      "name": "下载API",
+      "status": "blocked",
+      "message": "项目无文件",
+      "timestamp": "2026-01-27T03:04:49.926420",
+      "details": {}
+    },
+    {
+      "tc_id": "TC-DEL-001",
+      "name": "删除文件API",
+      "status": "blocked",
+      "message": "项目无文件",
+      "timestamp": "2026-01-27T03:04:49.937887",
+      "details": {}
+    },
+    {
+      "tc_id": "TC-IMP-001",
+      "name": "导入文件API",
+      "status": "passed",
+      "message": "导入成功",
+      "timestamp": "2026-01-27T03:04:49.981889",
+      "details": {
+        "project_id": "RAW_Kr83x2Qw",
+        "result": {
+          "duplicate": 0,
+          "imported": 1,
+          "project_id": "RAW_Kr83x2Qw",
+          "storage_path": "/bio/rawdata/mRseq/Hs/Li/RAW_Kr83x2Qw",
+          "success": true
+        }
+      }
+    },
+    {
+      "tc_id": "TC-CFG-001",
+      "name": "元数据配置API",
+      "status": "failed",
+      "message": null,
+      "timestamp": "2026-01-27T03:04:49.988866",
+      "details": {}
+    },
+    {
+      "tc_id": "TC-OPT-001",
+      "name": "字段选项-raw_type",
+      "status": "passed",
+      "message": "获取 20 个选项",
+      "timestamp": "2026-01-27T03:04:49.993519",
+      "details": {}
+    },
+    {
+      "tc_id": "TC-OPT-001",
+      "name": "字段选项-raw_species",
+      "status": "passed",
+      "message": "获取 4 个选项",
+      "timestamp": "2026-01-27T03:04:49.998559",
+      "details": {}
+    },
+    {
+      "tc_id": "TC-OPT-001",
+      "name": "字段选项-raw_tissue",
+      "status": "passed",
+      "message": "获取 51 个选项",
+      "timestamp": "2026-01-27T03:04:50.003875",
+      "details": {}
+    },
+    {
+      "tc_id": "TC-OPT-001",
+      "name": "字段选项-results_type",
+      "status": "passed",
+      "message": "获取 8 个选项",
+      "timestamp": "2026-01-27T03:04:50.009817",
+      "details": {}
+    }
+  ],
+  "summary": {
+    "total": 11,
+    "passed": 8,
+    "failed": 1,
+    "blocked": 2
+  }
+}

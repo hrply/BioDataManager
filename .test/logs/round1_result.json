@@ -1,15 +1,10 @@
 {
   "test_round": 1,
-  "test_time": "2026-01-25T23:02:57.225261",
+  "test_time": "2026-01-27T16:48:28.346489",
   "environment": "localhost:20425",
   "base_url": "http://localhost:20425",
-  "passed": 25,
-  "failed": 1,
-  "errors": [
-    [
-      "创建结果数据项目",
-      "创建失败: {'project': {'created_at': '2026-01-25 15:02:57', 'files': [], 'id': 4, 'results_DOI': '', 'results_db_link': '', 'results_description': '', 'results_file_count': 0, 'results_id': 'RES_udGkpe1s', 'results_keywords': '', 'results_raw': 'RAW_test001,RAW_test002', 'results_title': '', 'results_total_size': 0, 'results_type': '差异分析 (DEA)', 'updated_at': '2026-01-25 15:02:57'}, 'success': True}"
-    ]
-  ],
-  "success": false
+  "passed": 26,
+  "failed": 0,
+  "errors": [],
+  "success": true
 }

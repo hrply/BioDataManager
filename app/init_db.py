@@ -202,8 +202,6 @@ def init_field_config(db, force=False):
         ('results_raw', '关联原始项目', 'tags', 'result', 0, 3, None, '1', 0),
         ('results_description', '描述', 'textarea', 'result', 0, 4, None, '1', 0),
         ('results_keywords', '关键词', 'tags', 'result', 0, 5, None, '1', 0),
-        ('results_DOI', 'DOI', 'link', 'result', 0, 6, None, '2', 0),
-        ('results_db_link', '数据库链接', 'link', 'result', 0, 7, None, '2', 0),
         ('results_file_count', '文件数量', 'text', 'result', 0, 6, None, '2', 1),
         ('results_total_size', '文件总大小', 'text', 'result', 0, 7, None, '2', 1),
     ]
