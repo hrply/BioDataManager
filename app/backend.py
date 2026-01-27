@@ -261,6 +261,28 @@ class BioDataManager:
         
         return project
     
+    def _row_to_dict(self, row, table_name: str) -> Optional[Dict]:
+        """将数据库查询结果行转换为字典（动态获取列名）
+        
+        使用 DESCRIBE 获取表结构，避免硬编码列索引
+        """
+        if not row:
+            return None
+        
+        try:
+            connection = self.db_manager.get_connection()
+            if connection is None:
+                return None
+            cursor = connection.cursor()
+            cursor.execute(f"DESCRIBE {table_name}")
+            columns = [desc[0] for desc in cursor.fetchall()]
+            cursor.close()
+            connection.close()
+            return dict(zip(columns, row))
+        except Exception as e:
+            print(f"转换行为字典失败: {e}")
+            return None
+    
     # ==================== 原始数据项目管理 ====================
     
     def _build_raw_project_path(self, raw_type: str, species: str, tissue: str, raw_id: str) -> Path:
@@ -339,28 +361,10 @@ class BioDataManager:
         
         result = []
         for row in projects:
-            project = {
-                'id': row[0],
-                'raw_id': row[1],
-                'raw_title': row[2],
-                'raw_type': row[3],
-                'raw_species': row[4],
-                'raw_tissue': row[5],
-                'raw_DOI': row[6],
-                'raw_db_id': row[7],
-                'raw_db_link': row[8],
-                'raw_author': row[9],
-                'raw_article': row[10],
-                'raw_description': row[11],
-                'raw_keywords': row[12],
-                'raw_file_count': row[13],
-                'raw_total_size': row[14],
-                'created_at': _format_datetime(row[15]),
-                'updated_at': _format_datetime(row[16])
-            }
-            # 转换 select 类型字段的 value 为 label（用于前端显示）
-            project = self._convert_select_values_to_labels(project, 'raw')
-            result.append(project)
+            project = self._row_to_dict(row, "raw_project")
+            if project:
+                project = self._convert_select_values_to_labels(project, 'raw')
+                result.append(project)
         
         return result
     
@@ -372,51 +376,26 @@ class BioDataManager:
         )
 
         if row:
-            # 获取项目文件列表（包含 file_property）
-            files = self.db_manager.query("""
-                SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at
-                FROM file_record
-                WHERE file_project_type = 'raw' AND file_project_id = %s
-            """, (raw_id,))
+            project = self._row_to_dict(row, "raw_project")
 
-            file_list = []
-            for f in files:
-                file_list.append({
-                    'id': f[0],
-                    'file_name': f[1],
-                    'file_path': f[2],
-                    'file_property': f[3],
-                    'file_size': f[4],
-                    'file_type': f[5],
-                    'file_project_type': f[6],
-                    'file_project_id': f[7],
-                    'file_project_ref_id': f[8],
-                    'imported_at': f[9].strftime('%Y-%m-%d %H:%M:%S') if f[9] else None
-                })
+            if project:
+                # 获取项目文件列表（动态获取列名）
+                files = self.db_manager.query("""
+                    SELECT * FROM file_record
+                    WHERE file_project_type = 'raw' AND file_project_id = %s
+                """, (raw_id,))
 
-            return {
-                'id': row[0],
-                'raw_id': row[1],
-                'raw_title': row[2],
-                'raw_type': row[3],
-                'raw_species': row[4],
-                'raw_tissue': row[5],
-                'raw_DOI': row[6],
-                'raw_db_id': row[7],
-                'raw_db_link': row[8],
-                'raw_author': row[9],
-                'raw_article': row[10],
-                'raw_description': row[11],
-                'raw_keywords': row[12],
-                'raw_file_count': row[13],
-                'raw_total_size': row[14],
-                'created_at': _format_datetime(row[15]),
-                'updated_at': _format_datetime(row[16]),
-                'files': file_list
-            }
-            # 转换 select 类型字段的 value 为 label（用于前端显示）
-            project = self._convert_select_values_to_labels(project, 'raw')
-            return project
+                file_list = []
+                for f in files:
+                    file_dict = self._row_to_dict(f, "file_record")
+                    if file_dict and 'imported_at' in file_dict and file_dict['imported_at']:
+                        file_dict['imported_at'] = file_dict['imported_at'].strftime('%Y-%m-%d %H:%M:%S')
+                    file_list.append(file_dict)
+
+                project['files'] = file_list
+                # 转换 select 类型字段的 value 为 label
+                project = self._convert_select_values_to_labels(project, 'raw')
+                return project
         return None
     
     def update_raw_project(self, data: Dict) -> bool:
@@ -561,22 +540,10 @@ class BioDataManager:
         
         result = []
         for row in projects:
-            project = {
-                'id': row[0],
-                'results_id': row[1],
-                'results_title': row[2],
-                'results_type': row[3],
-                'results_raw': row[4],
-                'results_description': row[5],
-                'results_keywords': row[6],
-                'results_file_count': row[7],
-                'results_total_size': row[8],
-                'created_at': _format_datetime(row[9]),
-                'updated_at': _format_datetime(row[10])
-            }
-            # 转换 select 类型字段的 value 为 label（用于前端显示）
-            project = self._convert_select_values_to_labels(project, 'result')
-            result.append(project)
+            project = self._row_to_dict(row, "result_project")
+            if project:
+                project = self._convert_select_values_to_labels(project, 'result')
+                result.append(project)
         
         return result
     
@@ -588,45 +555,26 @@ class BioDataManager:
         )
 
         if row:
-            # 获取项目文件列表（包含 file_property）
-            files = self.db_manager.query("""
-                SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at
-                FROM file_record
-                WHERE file_project_type = 'result' AND file_project_id = %s
-            """, (results_id,))
+            project = self._row_to_dict(row, "result_project")
 
-            file_list = []
-            for f in files:
-                file_list.append({
-                    'id': f[0],
-                    'file_name': f[1],
-                    'file_path': f[2],
-                    'file_property': f[3],
-                    'file_size': f[4],
-                    'file_type': f[5],
-                    'file_project_type': f[6],
-                    'file_project_id': f[7],
-                    'file_project_ref_id': f[8],
-                    'imported_at': f[9].strftime('%Y-%m-%d %H:%M:%S') if f[9] else None
-                })
+            if project:
+                # 获取项目文件列表（动态获取列名）
+                files = self.db_manager.query("""
+                    SELECT * FROM file_record
+                    WHERE file_project_type = 'result' AND file_project_id = %s
+                """, (results_id,))
 
-            return {
-                'id': row[0],
-                'results_id': row[1],
-                'results_title': row[2],
-                'results_type': row[3],
-                'results_raw': row[4],
-                'results_description': row[5],
-                'results_keywords': row[6],
-                'results_file_count': row[7],
-                'results_total_size': row[8],
-                'created_at': _format_datetime(row[9]),
-                'updated_at': _format_datetime(row[10]),
-                'files': file_list
-            }
-            # 转换 select 类型字段的 value 为 label（用于前端显示）
-            project = self._convert_select_values_to_labels(project, 'result')
-            return project
+                file_list = []
+                for f in files:
+                    file_dict = self._row_to_dict(f, "file_record")
+                    if file_dict and 'imported_at' in file_dict and file_dict['imported_at']:
+                        file_dict['imported_at'] = file_dict['imported_at'].strftime('%Y-%m-%d %H:%M:%S')
+                    file_list.append(file_dict)
+
+                project['files'] = file_list
+                # 转换 select 类型字段的 value 为 label
+                project = self._convert_select_values_to_labels(project, 'result')
+                return project
         return None
     
     def update_result_project(self, data: Dict) -> bool:
@@ -697,26 +645,17 @@ class BioDataManager:
     def get_files_by_project(self, project_type: str, project_id: str) -> List[Dict]:
         """获取项目的文件列表"""
         files = self.db_manager.query("""
-            SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at
-            FROM file_record 
+            SELECT * FROM file_record 
             WHERE file_project_type = %s AND file_project_id = %s 
             ORDER BY imported_at DESC
         """, (project_type, project_id))
         
         result = []
         for row in files:
-            result.append({
-                'id': row[0],
-                'file_name': row[1],
-                'file_path': row[2],
-                'file_property': row[3],
-                'file_size': row[4],
-                'file_type': row[5],
-                'file_project_type': row[6],
-                'file_project_id': row[7],
-                'file_project_ref_id': row[8],
-                'imported_at': row[9].strftime('%Y-%m-%d %H:%M:%S') if row[9] else None
-            })
+            file_dict = self._row_to_dict(row, "file_record")
+            if file_dict and 'imported_at' in file_dict and file_dict['imported_at']:
+                file_dict['imported_at'] = file_dict['imported_at'].strftime('%Y-%m-%d %H:%M:%S')
+            result.append(file_dict)
         return result
     
     def add_file_record(self, project_type: str, project_id: str, file_path: Path, metadata: Dict = None, ref_project_id: str = None) -> Dict:
@@ -821,8 +760,9 @@ class BioDataManager:
             if not file_record:
                 return False
             
-            project_type = file_record[5]
-            project_id = file_record[6]
+            file_dict = self._row_to_dict(file_record, "file_record")
+            project_type = file_dict.get('file_project_type')
+            project_id = file_dict.get('file_project_id')
             
             self.db_manager.execute("DELETE FROM file_record WHERE id = %s", (file_id,))
             
