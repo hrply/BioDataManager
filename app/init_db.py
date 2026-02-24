@@ -113,6 +113,7 @@ def init_field_config(db, force=False):
             {"value": "代谢组", "label": "代谢组"},
             {"value": "脂质组学", "label": "脂质组学"},
             {"value": "免疫组学", "label": "免疫组学"},
+            {"value": "CyTOF", "label": "质谱流式"},
             {"value": "空间多组学", "label": "空间多组学"},
         ]), '2', 0),
         ('raw_species', '物种', 'select', 'raw', 1, 3, json.dumps([
@@ -276,7 +277,8 @@ def init_select_options(db, force=False):
         ('代谢组', '代谢组', 17),
         ('脂质组学', '脂质组学', 18),
         ('免疫组学', '免疫组学', 19),
-        ('空间多组学', '空间多组学', 20),
+        ('CyTOF', '质谱流式', 20),
+        ('空间多组学', '空间多组学', 21),
     ]
     
     # 物种选项
@@ -414,6 +416,7 @@ def init_abbr_mapping(db, force=False):
         ('代谢组', 'metab'),
         ('脂质组学', 'lipo'),
         ('免疫组学', 'immuno'),
+        ('CyTOF', 'cytof'),
         ('空间多组学', 'spatial'),
     ]
     

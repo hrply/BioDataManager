@@ -745,7 +745,7 @@ class BioDataManager:
             result.append(file_dict)
         return result
     
-    def add_file_record(self, project_type: str, project_id: str, file_path: Path, metadata: Dict = None, ref_project_id: str = None, overwrite: bool = False) -> Dict:
+    def add_file_record(self, project_type: str, project_id: str, file_path: Path, metadata: Dict = None, ref_project_id: str = None, overwrite: bool = False, imported_at: datetime = None) -> Dict:
         """添加文件记录
         
         Args:
@@ -755,6 +755,7 @@ class BioDataManager:
             metadata: 可选的元数据字典（如果已传入则使用，否则从数据库查询）
             ref_project_id: 关联项目编号（结果文件关联的原始数据项目）
             overwrite: 是否覆盖已存在的文件（需要 file_project_id+file_project_type+file_path+file_name 均相同）
+            imported_at: 导入时间（默认为当前时间，异步导入时传入任务创建时间）
             
         Returns:
             Dict: {'success': bool, 'message': str, 'is_duplicate': bool}
@@ -809,10 +810,14 @@ class BioDataManager:
             
             file_property = self._build_file_property(project_type, project_id, project_metadata)
             
+            # 使用传入的 imported_at，如果没有传入则使用当前时间
+            if imported_at is None:
+                imported_at = datetime.now()
+            
             self.db_manager.execute("""
                 INSERT INTO file_record 
-                (file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                (file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 file_name,
                 str(dir_path),
@@ -821,7 +826,8 @@ class BioDataManager:
                 self._get_file_type(file_name),
                 project_type,
                 project_id,
-                ref_project_id
+                ref_project_id,
+                imported_at
             ))
             
             # 更新项目文件计数和总大小
@@ -1277,7 +1283,7 @@ class BioDataManager:
                 # 递归扫描子目录
                 self._collect_files_recursive(item, files_list, download_dir)
     
-    def import_download_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, data_type: str = 'raw', overwrite: bool = False) -> Dict:
+    def import_download_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, data_type: str = 'raw', overwrite: bool = False, imported_at: datetime = None) -> Dict:
         """导入下载文件到项目
         
         Args:
@@ -1287,14 +1293,24 @@ class BioDataManager:
             metadata_override: 可选的字段值覆盖/追加（用于导入至已有项目时）
             data_type: 数据类型 ('raw' 或 'result')
             overwrite: 是否覆盖已存在的文件
+            imported_at: 导入时间（默认为当前时间）
         """
         if data_type == 'raw':
-            return self._import_raw_files(project_id, files, folder_name, metadata_override, overwrite)
+            return self._import_raw_files(project_id, files, folder_name, metadata_override, overwrite, imported_at)
         else:
-            return self._import_result_files(project_id, files, folder_name, metadata_override, overwrite)
+            return self._import_result_files(project_id, files, folder_name, metadata_override, overwrite, imported_at)
     
-    def _import_raw_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, overwrite: bool = False) -> Dict:
-        """导入原始数据文件到项目"""
+    def _import_raw_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, overwrite: bool = False, imported_at: datetime = None) -> Dict:
+        """导入原始数据文件到项目
+        
+        Args:
+            project_id: 项目编号
+            files: 文件列表
+            folder_name: 源文件夹名
+            metadata_override: 元数据覆盖值
+            overwrite: 是否覆盖已存在的文件
+            imported_at: 导入时间（默认为当前时间）
+        """
         project = self.get_raw_project_by_id(project_id)
         if not project:
             return {'success': False, 'message': '项目不存在'}
@@ -1373,7 +1389,7 @@ class BioDataManager:
                         continue
                 
                 # 再添加文件记录
-                result = self.add_file_record('raw', project_id, dest_path, metadata=metadata_override, overwrite=overwrite)
+                result = self.add_file_record('raw', project_id, dest_path, metadata=metadata_override, overwrite=overwrite, imported_at=imported_at)
                 if result.get('is_duplicate'):
                     print(f"[INFO] 跳过重复文件: {file_name}")
                     duplicate_count += 1
@@ -1390,8 +1406,17 @@ class BioDataManager:
             'storage_path': str(project_path)
         }
     
-    def _import_result_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, overwrite: bool = False) -> Dict:
-        """导入结果数据文件到项目"""
+    def _import_result_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, overwrite: bool = False, imported_at: datetime = None) -> Dict:
+        """导入结果数据文件到项目
+        
+        Args:
+            project_id: 项目编号
+            files: 文件列表
+            folder_name: 源文件夹名
+            metadata_override: 元数据覆盖值
+            overwrite: 是否覆盖已存在的文件
+            imported_at: 导入时间（默认为当前时间）
+        """
         project = self.get_result_project_by_id(project_id)
         if not project:
             return {'success': False, 'message': '结果项目不存在'}
@@ -1487,7 +1512,7 @@ class BioDataManager:
                         continue
                 
                 # 再添加文件记录
-                result = self.add_file_record('result', project_id, dest_path, metadata=metadata_override, ref_project_id=ref_project_id, overwrite=overwrite)
+                result = self.add_file_record('result', project_id, dest_path, metadata=metadata_override, ref_project_id=ref_project_id, overwrite=overwrite, imported_at=imported_at)
                 if result.get('is_duplicate'):
                     print(f"[INFO] 跳过重复文件: {file_name}")
                     duplicate_count += 1
@@ -1730,9 +1755,12 @@ class BioDataManager:
             imported_count = 0
             failed_files = []
             
-            # 调用原有的导入方法
+            # 使用任务创建时间作为导入时间（点击导入按钮的时间）
+            imported_at = datetime.now()
+            
+            # 调用原有的导入方法，传入导入时间
             result = self.import_download_files(
-                project_id, files, folder_name, metadata_override, data_type, overwrite
+                project_id, files, folder_name, metadata_override, data_type, overwrite, imported_at
             )
             
             if result.get('success'):

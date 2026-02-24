@@ -13,13 +13,15 @@ BioData Manager 是一个生物信息学数据管理系统，用于管理原始�
 - **元数据配置**：动态配置字段显示和表单生成
 
 ### 最新更新
+- **导入时间戳优化**：异步导入使用任务创建时间（点击导入按钮时间）作为 `imported_at`，避免异步完成时间与用户期望不符
 - **递归文件扫描**：支持扫描多层子目录，自动发现所有嵌套文件
 - **异步 Hash 校验**：新增文件 MD5/SHA256 哈希值计算功能，支持大文件异步处理
 - **异步批量删除**：批量删除文件采用异步处理，支持大量文件删除操作
 - **异步批量导入**：批量导入文件采用异步处理，支持大量文件导入操作
 - **任务管理系统**：实现异步任务管理器，解决大文件计算超时问题
-- **轮询优化**：异步任务状态查询间隔优化为 15 秒，减少服务器负载
+- **轮询优化**：异步任务状态查询间隔优化为 7.5 秒，减少服务器负载
 - **校验弹窗优化**：重新设计校验弹窗列结构，MD5 和 SHA256 分列显示，新旧值对比更清晰
+- **新增 CyTOF 数据类型**：添加质谱流式数据类型支持，缩写为 `cytof`
 - **内测日志记录**：新增 `.test/logs/` 目录用于存储测试结果
 
 ### 技术栈
@@ -266,7 +268,7 @@ UUID规则:
 **技术实现**：
 - **TaskManager**：异步任务管理器，使用后台线程执行计算
 - **分块读取**：8KB 分块读取文件，避免内存问题
-- **轮询机制**：前端每 15 秒查询一次任务状态
+- **轮询机制**：前端每 7.5 秒查询一次任务状态
 - **进度反馈**：实时显示计算进度和完成状态
 
 **相关 API**：
@@ -279,7 +281,7 @@ UUID规则:
 2. 选择要校验的文件
 3. 点击"校验选中"创建异步任务
 4. 系统立即返回任务 ID（不等待计算）
-5. 前端每 15 秒轮询查询任务状态
+5. 前端每 7.5 秒轮询查询任务状态
 6. 显示计算进度（正在计算 X/Y 文件）
 7. 计算完成后显示结果（旧 Hash 值 vs 新 Hash 值）
 8. 点击"保存校验"保存到数据库
@@ -328,7 +330,7 @@ UUID规则:
 **技术实现**：
 - **TaskManager**：异步任务管理器，使用后台线程执行删除
 - **移动到回收站**：删除的文件会被移动到 `/bio/recycle` 目录
-- **轮询机制**：前端每 15 秒查询一次任务状态
+- **轮询机制**：前端每 7.5 秒查询一次任务状态
 - **错误处理**：单个文件删除失败不影响其他文件
 
 **相关 API**：
@@ -340,7 +342,7 @@ UUID规则:
 2. 点击"删除选中"按钮
 3. 确认删除操作
 4. 系统立即返回任务 ID（不等待删除完成）
-5. 前端每 15 秒轮询查询任务状态
+5. 前端每 7.5 秒轮询查询任务状态
 6. 显示删除进度
 7. 删除完成后自动刷新列表并关闭弹窗
 
@@ -352,12 +354,14 @@ UUID规则:
 - 支持原始数据和结果数据两种数据类型
 - 不会因为文件过多或过大而超时
 - 实时显示导入进度
+- **导入时间戳优化**：使用任务创建时间（点击导入按钮时间）作为 `imported_at`，确保时间戳准确反映用户操作时间
 
 **技术实现**：
 - **TaskManager**：异步任务管理器，使用后台线程执行导入
 - **路径生成**：根据元数据自动生成正确的文件存储路径
-- **轮询机制**：前端每 15 秒查询一次任务状态
+- **轮询机制**：前端每 7.5 秒查询一次任务状态
 - **错误处理**：单个文件导入失败不影响其他文件
+- **导入时间戳**：在 `import_files_async` 方法开始时获取当前时间，传递给 `add_file_record` 方法
 
 **相关 API**：
 - `POST /api/files/import/async` - 创建异步导入任务，返回任务 ID
@@ -369,9 +373,16 @@ UUID规则:
 3. 填写必要的元数据信息
 4. 点击"导入"按钮
 5. 系统立即返回任务 ID（不等待导入完成）
-6. 前端每 15 秒轮询查询任务状态
+6. 前端每 7.5 秒轮询查询任务状态
 7. 显示导入进度
 8. 导入完成后自动刷新列表并关闭弹窗
+
+**导入时间戳实现细节**：
+- `backend.py:799-808` - `add_file_record` 方法添加 `imported_at` 参数
+- `backend.py:1334-1344` - `_import_raw_files` 方法传递 `imported_at` 参数
+- `backend.py:1414-1424` - `_import_result_files` 方法传递 `imported_at` 参数
+- `backend.py:1290-1304` - `import_download_files` 方法传递 `imported_at` 参数
+- `backend.py:1730-1754` - `import_files_async` 方法使用 `datetime.now()` 作为导入时间
 
 ### 引文解析
 
@@ -382,6 +393,40 @@ UUID规则:
 
 **相关方法**：
 - `CitationParser` 类 - 引文解析器
+
+### 数据类型配置
+
+**原始数据类型（raw_type）**：
+
+| 选项值 | 显示名称 | 缩写 | 序号 |
+|--------|---------|------|------|
+| mRNAseq | 转录组 | mRseq | 1 |
+| Long-Read RNAseq | 长读转录组 | LRseq | 2 |
+| lncRNAseq | lncRNAseq | lncseq | 3 |
+| miRNAseq | miRNAseq | miseq | 4 |
+| sRNAseq | 小RNA转录组 | srseq | 5 |
+| epitRNAseq | 表观转录组 | epitseq | 6 |
+| scRNAseq | 单细胞转录组 | scseq | 7 |
+| LR-scRNAseq | 长读单细胞转录组 | LR_sc | 8 |
+| 蛋白组 | 蛋白组 | pro | 9 |
+| 磷酸化组 | 磷酸化组 | pho | 10 |
+| 泛素化组 | 泛素化组 | ubi | 11 |
+| 乙酰化组 | 乙酰化组 | acety | 12 |
+| SUMO PTMome | SUMO PTMome | sumo | 13 |
+| 甲基化组 | 甲基化组 | meth | 14 |
+| 糖基化组 | 糖基化组 | glyco | 15 |
+| 棕榈酰化组 | 棕榈酰化组 | pal | 16 |
+| 代谢组 | 代谢组 | metab | 17 |
+| 脂质组学 | 脂质组学 | lipo | 18 |
+| 免疫组学 | 免疫组学 | immuno | 19 |
+| **CyTOF** | **质谱流式** | **cytof** | **20** |
+| 空间多组学 | 空间多组学 | spatial | 21 |
+
+**新增 CyTOF 支持**：
+- 选项值：`CyTOF`
+- 显示名称：`质谱流式`
+- 缩写：`cytof`
+- 文件路径示例：`/bio/rawdata/cytof/{物种缩写}/{组织缩写}/{项目编号}/{文件名}`
 
 ## 数据库设计
 
@@ -396,7 +441,7 @@ UUID规则:
 | `select_options` | 下拉选项表 |
 | `abbr_mapping` | 缩写映射表 |
 
-### file_record 表结构（更新）
+### file_record 表结构（最新）
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
@@ -409,9 +454,15 @@ UUID规则:
 | file_project_type | ENUM('raw','result') | 项目类型 |
 | file_project_id | VARCHAR(50) | 项目编号 |
 | file_project_ref_id | VARCHAR(50) | 关联项目编号 |
-| **file_MD5** | **CHAR(32)** | **文件 MD5 哈希值（新增）** |
-| **file_SHA256** | **CHAR(64)** | **文件 SHA256 哈希值（新增）** |
-| imported_at | DATETIME | 导入时间 |
+| file_MD5 | CHAR(32) | 文件 MD5 哈希值 |
+| file_SHA256 | CHAR(64) | 文件 SHA256 哈希值 |
+| imported_at | DATETIME | 导入时间（任务创建时间） |
+
+**imported_at 字段说明**：
+- 默认值：`CURRENT_TIMESTAMP`
+- 异步导入时使用任务创建时间（点击导入按钮时间）
+- 同步导入时使用文件实际插入数据库时间
+- 格式：`YYYY-MM-DD HH:MM:SS`
 
 ### 文件存储路径规则
 
@@ -419,6 +470,7 @@ UUID规则:
 ```
 /bio/rawdata/{数据类型缩写}/{物种缩写}/{组织来源缩写}/{项目编号}/{文件名}
 示例: /bio/rawdata/mRseq/Hs/Li/RAW_A1B2C3D4/sample1.fastq.gz
+示例（CyTOF）: /bio/rawdata/cytof/Hs/Li/RAW_X1Y2Z3/sample.fcs
 ```
 
 **结果数据文件路径**：
@@ -456,8 +508,8 @@ UUID规则:
 | GET | `/api/scan-downloads` | 扫描下载目录（异步） |
 | GET | `/api/scan-downloads/sync` | 扫描下载目录（同步） |
 | POST | `/api/files/import` | 导入文件（同步） |
-| POST | `/api/files/import/async` | 导入文件（异步） |
-| GET | `/api/files` | 获取项目文件列表（含 Hash 值） |
+| POST | `/api/files/import/async` | 导入文件（异步，带导入时间戳） |
+| GET | `/api/files` | 获取项目文件列表（含 Hash 值和导入时间） |
 | DELETE | `/api/files` | 删除文件记录（同步） |
 | POST | `/api/files/delete/async` | 删除文件记录（异步） |
 | GET | `/api/files/imported-projects` | 获取已导入项目列表 |
@@ -489,15 +541,27 @@ METADATA_FIELDS_NEW_RAW=2,3,4,11,5
 ### 数据库初始化
 
 ```bash
-# 设置环境变量
-export INIT_DATABASE=true
+# Docker 容器内运行
+docker-compose exec biodata-manager python3 init_db.py
 
-# 运行初始化脚本
+# 或本地运行
 python3 app/init_db.py
 
-# 重置环境变量
-export INIT_DATABASE=false
+# 强制重建模式（清空所有配置数据）
+python3 app/init_db.py --force
 ```
+
+### 添加新的数据类型（如 CyTOF）
+
+1. 修改 `app/init_db.py` 中的三个位置：
+   - `raw_type` 字段配置的 `field_options` JSON 数组
+   - `raw_type_options` 列表
+   - `raw_type_abbrs` 列表
+2. 运行初始化脚本：
+   ```bash
+   docker-compose exec biodata-manager python3 init_db.py
+   ```
+3. 刷新页面即可看到新选项
 
 ### 测试文件扫描功能
 
@@ -553,6 +617,7 @@ touch /bio/downloads/Cancer/analysis/result.csv
 # 6. 点击"导入"
 # 7. 系统会异步导入文件，显示进度
 # 8. 导入完成后自动刷新列表
+# 9. 查看文件详情，确认导入时间戳正确显示
 ```
 
 ### 添加 Hash 字段到现有数据库
@@ -563,6 +628,16 @@ touch /bio/downloads/Cancer/analysis/result.csv
 ALTER TABLE file_record 
 ADD COLUMN file_MD5 CHAR(32) DEFAULT NULL COMMENT '文件MD5哈希值' AFTER file_project_ref_id,
 ADD COLUMN file_SHA256 CHAR(64) DEFAULT NULL COMMENT '文件SHA256哈希值' AFTER file_MD5;
+```
+
+### 使用命令行查询数据库（解决中文乱码）
+
+```bash
+# 使用 utf8mb4 字符集查询，避免中文显示为乱码
+docker-compose exec mysql mysql -uroot -prootpassword --default-character-set=utf8mb4 biodata -e "查询语句"
+
+# 示例：查看所有数据类型选项
+docker-compose exec mysql mysql -uroot -prootpassword --default-character-set=utf8mb4 biodata -e "SELECT option_value, option_label FROM select_options WHERE option_type = 'raw_type';"
 ```
 
 ## 相关文档
@@ -587,21 +662,25 @@ ADD COLUMN file_SHA256 CHAR(64) DEFAULT NULL COMMENT '文件SHA256哈希值' AFT
 13. **轮询间隔**：所有异步任务状态查询间隔为 7.5 秒，减少服务器负载
 14. **批量操作**：批量删除和批量导入都采用异步处理，避免超时问题
 15. **回收站**：删除的文件会被移动到 `/bio/recycle` 目录，不会永久删除
+16. **导入时间戳**：异步导入使用任务创建时间，确保时间戳准确反映用户操作时间
+17. **字符集问题**：使用命令行查询数据库时，必须指定 `--default-character-set=utf8mb4` 参数，否则中文会显示为乱码
+18. **模板缓存**：修改 Jinja2 模板文件后需要重启服务才能生效
 
 ## 版本信息
 
-- **项目版本**: 1.3.0
+- **项目版本**: 1.4.0
 - **数据库版本**: MySQL 8.x (LTS)
 - **Python 版本**: 3.10
 - **文档更新**: 2026-02-24
 - **最新功能**: 
+  - 导入时间戳优化（使用任务创建时间）
   - 递归文件扫描（多层子目录支持）
   - 异步 Hash 校验（支持大文件）
   - 异步批量删除（支持大量文件）
   - 异步批量导入（支持大量文件）
   - 文件 MD5/SHA256 计算
   - 任务管理系统
-  - 轮询优化（15秒间隔）
+  - 轮询优化（7.5秒间隔）
   - 校验弹窗优化（MD5/SHA256 分列显示）
   - 回收站机制（文件移动而非永久删除）
-  
+  - 新增 CyTOF 数据类型（质谱流式）

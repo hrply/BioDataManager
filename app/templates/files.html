@@ -1263,7 +1263,7 @@
                             <td>${f.file_property || '-'}</td>
                             <td>${formatSize(f.file_size)}</td>
                             <td>${f.file_type || '-'}</td>
-                            <td>${f.created_at ? f.created_at.split('T')[0] : '-'}</td>
+                            <td>${f.imported_at ? f.imported_at : '-'}</td>
                         </tr>`;
                     });
                 }
