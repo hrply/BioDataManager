@@ -215,7 +215,9 @@ def init_field_config(db, force=False):
         ('file_type', '文件类型', 'text', 'file', 0, 4, None, '2', 0),
         ('file_project_type', '项目类型', 'text', 'file', 1, 5, None, '2', 0),
         ('file_project_id', '项目编号', 'text', 'file', 1, 6, None, '2', 0),
-        ('imported_at', '导入时间', 'text', 'file', 0, 7, None, '2', 0),
+        ('file_MD5', 'MD5哈希值', 'text', 'file', 0, 7, None, '2', 0),
+        ('file_SHA256', 'SHA256哈希值', 'text', 'file', 0, 8, None, '2', 0),
+        ('imported_at', '导入时间', 'text', 'file', 0, 9, None, '2', 0),
     ]
     
     all_fields = raw_fields + result_fields + file_fields

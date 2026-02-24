@@ -642,6 +642,93 @@ class BioDataManager:
     
     # ==================== 文件记录管理 ====================
     
+    def calculate_file_hash(self, file_path: Path) -> Dict[str, str]:
+        """计算单个文件的 MD5 和 SHA256 哈希值
+        
+        Args:
+            file_path: 文件路径
+            
+        Returns:
+            Dict: {'md5': str, 'sha256': str}
+        """
+        import hashlib
+        
+        md5_hash = hashlib.md5()
+        sha256_hash = hashlib.sha256()
+        
+        try:
+            with open(file_path, 'rb') as f:
+                # 分块读取文件，避免大文件内存问题
+                for chunk in iter(lambda: f.read(8192), b''):
+                    md5_hash.update(chunk)
+                    sha256_hash.update(chunk)
+            
+            return {
+                'md5': md5_hash.hexdigest(),
+                'sha256': sha256_hash.hexdigest()
+            }
+        except Exception as e:
+            print(f"计算文件哈希失败: {file_path}, 错误: {e}")
+            return {
+                'md5': '',
+                'sha256': ''
+            }
+    
+    def calculate_files_hash(self, file_ids: List[int]) -> Dict[int, Dict[str, str]]:
+        """计算多个文件的 MD5 和 SHA256 哈希值
+        
+        Args:
+            file_ids: 文件ID列表
+            
+        Returns:
+            Dict: {file_id: {'md5': str, 'sha256': str}}
+        """
+        results = {}
+        
+        # 查询文件信息
+        placeholders = ','.join(['%s'] * len(file_ids))
+        files = self.db_manager.query(f"""
+            SELECT id, file_path, file_name 
+            FROM file_record 
+            WHERE id IN ({placeholders})
+        """, file_ids)
+        
+        for file_info in files:
+            file_id = file_info[0]
+            file_path_str = file_info[1]
+            file_name = file_info[2]
+            
+            # 构建完整文件路径
+            full_path = Path('/bio') / file_path_str / file_name
+            
+            # 计算哈希值
+            hash_values = self.calculate_file_hash(full_path)
+            results[file_id] = hash_values
+        
+        return results
+    
+    def update_file_hash(self, file_id: int, md5: str, sha256: str) -> bool:
+        """更新文件的哈希值到数据库
+        
+        Args:
+            file_id: 文件ID
+            md5: MD5 哈希值
+            sha256: SHA256 哈希值
+            
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            self.db_manager.execute("""
+                UPDATE file_record 
+                SET file_MD5 = %s, file_SHA256 = %s 
+                WHERE id = %s
+            """, (md5, sha256, file_id))
+            return True
+        except Exception as e:
+            print(f"更新文件哈希值失败: {e}")
+            return False
+    
     def get_files_by_project(self, project_type: str, project_id: str) -> List[Dict]:
         """获取项目的文件列表"""
         files = self.db_manager.query("""
@@ -1103,30 +1190,32 @@ class BioDataManager:
     # ==================== 目录扫描（保持原有功能）====================
     
     def scan_downloads(self) -> List[Dict]:
-        """扫描下载目录"""
+        """扫描下载目录（递归扫描所有子目录）"""
         download_dir = Path("/bio/downloads")
         projects = []
         
         if not download_dir.exists():
             return projects
         
+        # 递归扫描所有顶层文件夹
         for item in download_dir.iterdir():
             if item.is_dir() and not item.name.startswith('.'):
-                project_info = self._parse_download_folder(item)
+                project_info = self._parse_download_folder_recursive(item)
                 if project_info:
                     projects.append(project_info)
         
         return projects
     
-    def _parse_download_folder(self, folder: Path) -> Optional[Dict]:
-        """解析下载文件夹信息"""
+    def _parse_download_folder_recursive(self, folder: Path) -> Optional[Dict]:
+        """递归解析下载文件夹信息（支持多层子目录）"""
         name = folder.name
+        download_dir = Path("/bio/downloads")
         
-        # 检测DOI
+        # 检测DOI（基于顶层文件夹名称）
         doi_match = re.search(r'10\.\d{4,}/[^\s]+', name)
         doi = doi_match.group(0) if doi_match else ""
         
-        # 检测数据库编号
+        # 检测数据库编号（基于顶层文件夹名称）
         db_id = ""
         db_link = ""
         for pattern, db_name, link_prefix in self.DB_PATTERNS:
@@ -1136,36 +1225,16 @@ class BioDataManager:
                 db_link = f"{link_prefix}{db_id}"
                 break
         
-        # 检测数据类型
+        # 递归获取所有文件
+        all_files = []
+        self._collect_files_recursive(folder, all_files, download_dir)
+        
+        # 检测数据类型（基于所有文件的扩展名）
         data_type = ""
         for ext in self.FILE_TYPE_MAPPING.keys():
-            if any(f.name.endswith(ext) for f in folder.iterdir() if f.is_file()):
+            if any(f['type'] == self.FILE_TYPE_MAPPING.get(ext, 'Other') for f in all_files):
                 data_type = self.DATA_TYPE_MAPPING.get(ext, '其他')
                 break
-        
-        # 获取文件列表
-        files = []
-        download_dir = Path("/bio/downloads")
-        for f in folder.iterdir():
-            if f.is_file() and not f.name.startswith('.'):
-                file_ext = f.suffix.lower()
-                file_type = self.FILE_TYPE_MAPPING.get(file_ext, 'Other')
-                # 计算相对于 /bio/downloads 的路径
-                try:
-                    if download_dir.exists():
-                        relative_path = f.relative_to(download_dir)
-                        relative_path_str = str(relative_path)
-                    else:
-                        # 如果 download_dir 不存在，使用文件夹名/文件名
-                        relative_path_str = f"{folder.name}/{f.name}"
-                except (ValueError, OSError):
-                    relative_path_str = f"{folder.name}/{f.name}"
-                files.append({
-                    'name': f.name,
-                    'size': f.stat().st_size,  # 返回原始字节数，由前端格式化
-                    'type': file_type,
-                    'relative_path': relative_path_str
-                })
         
         return {
             'name': name,
@@ -1173,10 +1242,40 @@ class BioDataManager:
             'db_id': db_id,
             'db_link': db_link,
             'data_type': data_type,
-            'file_count': len(files),
-            'files': files,
+            'file_count': len(all_files),
+            'files': all_files,
             'path': str(folder)
         }
+    
+    def _collect_files_recursive(self, folder: Path, files_list: List, download_dir: Path):
+        """递归收集文件夹中的所有文件
+        
+        Args:
+            folder: 要扫描的文件夹
+            files_list: 文件列表（输出参数）
+            download_dir: 下载目录根路径
+        """
+        for item in folder.iterdir():
+            if item.is_file() and not item.name.startswith('.'):
+                file_ext = item.suffix.lower()
+                file_type = self.FILE_TYPE_MAPPING.get(file_ext, 'Other')
+                # 计算相对于 /bio/downloads 的路径
+                try:
+                    relative_path = item.relative_to(download_dir)
+                    relative_path_str = str(relative_path)
+                except (ValueError, OSError):
+                    # 如果无法计算相对路径，使用文件夹层级结构
+                    relative_path_str = item.name
+                
+                files_list.append({
+                    'name': item.name,
+                    'size': item.stat().st_size,  # 返回原始字节数，由前端格式化
+                    'type': file_type,
+                    'relative_path': relative_path_str
+                })
+            elif item.is_dir() and not item.name.startswith('.'):
+                # 递归扫描子目录
+                self._collect_files_recursive(item, files_list, download_dir)
     
     def import_download_files(self, project_id: str, files: List, folder_name: str = None, metadata_override: Dict = None, data_type: str = 'raw', overwrite: bool = False) -> Dict:
         """导入下载文件到项目
@@ -1515,3 +1614,155 @@ class BioDataManager:
             'project_id': project_id,
             'storage_path': str(project_path)
         }
+    # ==================== 异步批量操作方法 ====================
+    
+    def delete_files_async(self, file_ids: List[int]) -> Dict:
+        """异步批量删除文件（供 TaskManager 调用）
+        
+        Args:
+            file_ids: 文件ID列表
+            
+        Returns:
+            Dict: 包含删除结果的字典
+        """
+        try:
+            total = len(file_ids)
+            deleted_count = 0
+            failed_files = []
+            
+            # 查询要删除的文件信息
+            placeholders = ','.join(['%s'] * len(file_ids))
+            files = self.db_manager.query(f"""
+                SELECT id, file_path, file_name, file_project_type, file_project_id 
+                FROM file_record 
+                WHERE id IN ({placeholders})
+            """, file_ids)
+            
+            if not files:
+                return {
+                    'success': False,
+                    'message': '未找到要删除的文件',
+                    'total': total,
+                    'deleted': 0,
+                    'failed': total,
+                    'failed_files': []
+                }
+            
+            # 记录需要更新计数的项目
+            projects_to_update = set()
+            
+            # 移动文件到回收站
+            recycle_base = Path('/bio') / 'recycle'
+            for idx, f in enumerate(files):
+                try:
+                    src_path = Path('/bio') / f[1] / f[2]
+                    dst_dir = recycle_base / f[1]
+                    dst_path = dst_dir / f[2]
+                    
+                    # 创建目标目录
+                    dst_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # 移动文件
+                    if src_path.exists():
+                        shutil.move(str(src_path), str(dst_path))
+                    
+                    # 记录需要更新的项目
+                    if f[3] and f[4]:
+                        projects_to_update.add((f[3], f[4]))
+                    
+                    deleted_count += 1
+                except Exception as e:
+                    failed_files.append({
+                        'file_id': f[0],
+                        'file_name': f[2],
+                        'error': str(e)
+                    })
+            
+            # 删除数据库记录
+            self.db_manager.execute(f"""
+                DELETE FROM file_record 
+                WHERE id IN ({placeholders})
+            """, file_ids)
+            
+            # 更新项目文件计数
+            for proj_type, proj_id in projects_to_update:
+                if proj_type == 'raw':
+                    self._update_raw_file_count(proj_id)
+                elif proj_type == 'result':
+                    self._update_result_file_count(proj_id)
+            
+            return {
+                'success': True,
+                'message': f'成功删除 {deleted_count}/{total} 个文件',
+                'total': total,
+                'deleted': deleted_count,
+                'failed': total - deleted_count,
+                'failed_files': failed_files
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'删除失败: {str(e)}',
+                'total': total,
+                'deleted': 0,
+                'failed': total,
+                'failed_files': []
+            }
+    
+    def import_files_async(self, project_id: str, files: List, folder_name: str = None, 
+                          metadata_override: Dict = None, data_type: str = 'raw', 
+                          overwrite: bool = False) -> Dict:
+        """异步批量导入文件（供 TaskManager 调用）
+        
+        Args:
+            project_id: 项目编号
+            files: 文件列表
+            folder_name: 源文件夹名
+            metadata_override: 元数据覆盖值
+            data_type: 数据类型 ('raw' 或 'result')
+            overwrite: 是否覆盖已存在的文件
+            
+        Returns:
+            Dict: 包含导入结果的字典
+        """
+        try:
+            total = len(files)
+            imported_count = 0
+            failed_files = []
+            
+            # 调用原有的导入方法
+            result = self.import_download_files(
+                project_id, files, folder_name, metadata_override, data_type, overwrite
+            )
+            
+            if result.get('success'):
+                imported_count = len(result.get('imported', []))
+                failed_count = total - imported_count
+                
+                return {
+                    'success': True,
+                    'message': f'成功导入 {imported_count}/{total} 个文件',
+                    'total': total,
+                    'imported': imported_count,
+                    'failed': failed_count,
+                    'result': result
+                }
+            else:
+                return {
+                    'success': False,
+                    'message': result.get('message', '导入失败'),
+                    'total': total,
+                    'imported': 0,
+                    'failed': total,
+                    'failed_files': [],
+                    'result': result
+                }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'导入失败: {str(e)}',
+                'total': total,
+                'imported': 0,
+                'failed': total,
+                'failed_files': []
+            }

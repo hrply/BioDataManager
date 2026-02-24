@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import uuid
+from task_manager import task_manager
 import threading
 import random
 import string
@@ -152,21 +153,45 @@ def get_task(task_id: str) -> dict:
         return scan_tasks.get(task_id)
 
 
-def create_task(task_type: str) -> str:
-    """创建新任务并返回task_id"""
+def create_task(task_type: str, task_name: str = None, params: dict = None, task_func: callable = None) -> str:
+    """创建新任务并返回task_id
+    
+    Args:
+        task_type: 任务类型
+        task_name: 任务名称（可选）
+        params: 任务参数（可选）
+        task_func: 任务执行函数（可选，如果提供则自动启动后台线程）
+    """
     task_id = str(uuid.uuid4())[:8]
     with task_lock:
         scan_tasks[task_id] = {
             'id': task_id,
             'type': task_type,
+            'name': task_name or task_type,
             'status': 'pending',  # pending, running, completed, failed
             'progress': 0,
             'message': '等待开始...',
             'result': None,
             'error': None,
             'created_at': datetime.now().isoformat(),
-            'completed_at': None
+            'completed_at': None,
+            'params': params or {}
         }
+    
+    # 如果提供了任务执行函数，自动启动后台线程
+    if task_func:
+        def run_task():
+            try:
+                update_task(task_id, status='running', progress=10, message='正在执行...')
+                result = task_func()
+                update_task(task_id, status='completed', progress=100, 
+                           message='任务完成', result=result)
+            except Exception as e:
+                update_task(task_id, status='failed', error=str(e))
+        
+        thread = threading.Thread(target=run_task, daemon=True)
+        thread.start()
+    
     return task_id
 
 
@@ -854,14 +879,14 @@ def api_get_project_files():
         if not project_id:
             return jsonify({'success': False, 'message': '缺少项目编号'}), 400
         
-        # 查询 file_record 获取文件列表
+        # 查询 file_record 获取文件列表（包含哈希值）
         files = db.query("""
-            SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at
-            FROM file_record 
+            SELECT id, file_name, file_path, file_property, file_size, file_type, file_project_type, file_project_id, file_project_ref_id, imported_at, file_MD5, file_SHA256
+            FROM file_record
             WHERE file_project_id = %s
             ORDER BY imported_at DESC
         """, (project_id,))
-        
+
         # 格式化数据
         formatted_files = []
         for f in files:
@@ -875,7 +900,9 @@ def api_get_project_files():
                 'project_type': f[6],
                 'file_project_id': f[7],
                 'file_project_ref_id': f[8],
-                'imported_at': f[9].strftime('%Y-%m-%d %H:%M:%S') if f[9] else None
+                'imported_at': f[9].strftime('%Y-%m-%d %H:%M:%S') if f[9] else None,
+                'file_MD5': f[10] or None,
+                'file_SHA256': f[11] or None
             })
         
         return jsonify({
@@ -1012,6 +1039,95 @@ def api_download_files():
             as_attachment=True,
             download_name='download.zip'
         )
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/files/hash/calculate', methods=['POST'])
+def api_calculate_files_hash():
+    """计算指定文件的 MD5 和 SHA256 哈希值（异步任务）
+    
+    请求体:
+        file_ids: 文件ID列表
+    """
+    try:
+        data = request.get_json()
+        file_ids = data.get('file_ids', [])
+        
+        if not file_ids:
+            return jsonify({'success': False, 'message': '缺少文件ID'}), 400
+        
+        # 创建异步任务
+        db = get_db_manager()
+        task_id = task_manager.create_task(file_ids, db)
+        
+        # 启动任务
+        task_manager.start_task(task_id)
+        
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': '任务已创建，正在计算...'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/files/hash/status/<task_id>')
+def api_get_hash_task_status(task_id):
+    """获取 Hash 计算任务状态
+    
+    Args:
+        task_id: 任务ID
+    """
+    try:
+        task_status = task_manager.get_task_status(task_id)
+        
+        if not task_status:
+            return jsonify({'success': False, 'message': '任务不存在'}), 404
+        
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            **task_status
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+
+@app.route('/api/files/hash/save', methods=['POST'])
+def api_save_files_hash():
+    """保存文件的哈希值到数据库
+    
+    请求体:
+        hash_values: {file_id: {'md5': str, 'sha256': str}}
+    """
+    try:
+        data = request.get_json()
+        hash_values = data.get('hash_values', {})
+        
+        if not hash_values:
+            return jsonify({'success': False, 'message': '缺少哈希值数据'}), 400
+        
+        manager = get_manager()
+        success_count = 0
+        failed_count = 0
+        
+        for file_id, hash_data in hash_values.items():
+            md5 = hash_data.get('md5', '')
+            sha256 = hash_data.get('sha256', '')
+            
+            if manager.update_file_hash(file_id, md5, sha256):
+                success_count += 1
+            else:
+                failed_count += 1
+        
+        return jsonify({
+            'success': True,
+            'message': f'成功保存 {success_count} 个文件的哈希值',
+            'success_count': success_count,
+            'failed_count': failed_count
+        })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -1210,6 +1326,116 @@ def api_all_tasks():
     # 返回最近10个任务
     tasks = sorted(tasks, key=lambda x: x.get('created_at', ''), reverse=True)[:10]
     return jsonify({'success': True, 'tasks': tasks})
+
+
+# ==================== API 路由 - 异步批量操作 ====================
+
+@app.route('/api/files/delete/async', methods=['POST'])
+def api_delete_files_async():
+    """异步批量删除文件
+    
+    请求体:
+        file_ids: 文件ID列表
+        
+    返回:
+        task_id: 异步任务ID
+    """
+    try:
+        data = request.get_json()
+        file_ids = data.get('file_ids', [])
+        
+        if not file_ids:
+            return jsonify({'success': False, 'message': '缺少文件ID'}), 400
+        
+        # 创建异步任务
+        task_id = create_task(
+            task_type='delete_files',
+            task_name=f'删除 {len(file_ids)} 个文件',
+            params={'file_ids': file_ids},
+            task_func=lambda: get_manager().delete_files_async(file_ids)
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': '删除任务已创建',
+            'task_id': task_id
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/files/import/async', methods=['POST'])
+def api_import_files_async():
+    """异步批量导入文件
+    
+    请求体:
+        project_id: 目标项目ID（可选）
+        files: 要导入的文件列表
+        project_info: 新项目信息（可选，用于创建新项目）
+        folder_name: 下载目录中的文件夹名
+        metadata_override: 元数据覆盖值
+        data_type: 数据类型（raw 或 result）
+        overwrite: 是否覆盖已存在的文件（可选，默认为false）
+        
+    返回:
+        task_id: 异步任务ID
+    """
+    try:
+        data = request.get_json()
+        project_id = data.get('project_id')
+        files = data.get('files', [])
+        project_info = data.get('project_info', {})
+        folder_name = data.get('folder_name')
+        metadata_override = data.get('metadata_override', {})
+        data_type = data.get('data_type', 'raw')
+        overwrite = data.get('overwrite', False)
+        
+        # 如果没有 project_id但有 project_info，则创建新项目
+        if not project_id and project_info:
+            # 根据数据类型创建对应的项目
+            if data_type == 'result':
+                project = get_manager().create_result_project(project_info)
+            else:
+                project = get_manager().create_raw_project(project_info)
+            
+            if not project:
+                return jsonify({'success': False, 'message': '创建项目失败'}), 400
+            
+            # 获取项目ID
+            project_id = project.get('raw_id') or project.get('results_id') or project.get('id')
+            if not project_id:
+                return jsonify({'success': False, 'message': '创建项目成功但无法获取项目ID'}), 400
+            
+            # 新建项目时，使用 project_info 作为 metadata_override 用于构建路径
+            metadata_override = project_info
+        
+        if not project_id or not files:
+            return jsonify({'success': False, 'message': '缺少参数'}), 400
+        
+        # 创建异步任务
+        task_id = create_task(
+            task_type='import_files',
+            task_name=f'导入 {len(files)} 个文件到项目 {project_id}',
+            params={
+                'project_id': project_id,
+                'files': files,
+                'folder_name': folder_name,
+                'metadata_override': metadata_override,
+                'data_type': data_type,
+                'overwrite': overwrite
+            },
+            task_func=lambda: get_manager().import_files_async(
+                project_id, files, folder_name, metadata_override, data_type, overwrite
+            )
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': '导入任务已创建',
+            'task_id': task_id
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ==================== 启动函数 ====================

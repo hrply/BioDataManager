@@ -84,7 +84,7 @@
                                     <th width="100" class="sortable" data-sort="file_count" onclick="sortProjects('file_count')" style="cursor: pointer;">
                                         文件数 <i class="bi bi-chevron-expand sort-icon"></i>
                                     </th>
-                                    <th width="120">操作</th>
+                                    <th width="200">操作</th>
                                 </tr>
                             </thead>
                             <tbody id="project-list">
@@ -96,9 +96,12 @@
                                     <td>{{ p.raw_title }}</td>
                                     <td><span class="badge bg-info">{{ p.raw_type }}</span></td>
                                     <td>{{ p.raw_file_count or 0 }}</td>
-                                    <td>
-                                        <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('{{ p.raw_id }}')">
+                                    <td style="white-space: nowrap;">
+                                        <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('{{ p.raw_id }}', 'raw')">
                                             <i class="bi bi-eye"></i> 查看
+                                        </button>
+                                        <button class="btn btn-outline-success btn-sm" onclick="showProjectVerify('{{ p.raw_id }}', 'raw')">
+                                            <i class="bi bi-shield-check"></i> 校验
                                         </button>
                                     </td>
                                 </tr>
@@ -250,6 +253,27 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
                 <button type="button" class="btn btn-primary" onclick="downloadSelectedFiles()">
                     <i class="bi bi-download me-1"></i>下载选中文件
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 校验弹窗 -->
+<div class="modal fade" id="verify-modal" tabindex="-1">
+    <div class="modal-dialog modal-xl" style="max-width: 95vw;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">文件校验</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="verify-content">
+                <!-- 动态填充 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" onclick="saveVerifiedHash()">
+                    <i class="bi bi-save me-1"></i>保存校验
                 </button>
             </div>
         </div>
@@ -695,9 +719,12 @@
                         <td>${p.title || '-'}</td>
                         <td><span class="badge bg-info">${projectTypeLabel}</span></td>
                         <td>${p.file_count || 0}</td>
-                        <td>
+                        <td style="white-space: nowrap;">
                             <button class="btn btn-outline-primary btn-sm" onclick="showProjectDetail('${p.project_id}', '${p.project_type}')">
                                 <i class="bi bi-eye"></i> 查看
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" onclick="showProjectVerify('${p.project_id}', '${p.project_type}')">
+                                <i class="bi bi-shield-check"></i> 校验
                             </button>
                         </td>
                     </tr>
@@ -987,15 +1014,16 @@
             }
             requestData.metadata_override = metadata_override;
             
-            apiPost('/api/import-download', requestData).then(function(res) {
-                if (res.success) {
-                    showToast('导入成功');
-                    $('#import-modal').modal('hide');
-                    scanDownloads();
-                    loadImportedProjects();
+            // 使用异步导入 API
+            apiPost('/api/files/import/async', requestData).then(function(res) {
+                if (res.success && res.task_id) {
+                    // 开始轮询任务状态
+                    pollImportTaskStatus(res.task_id, 'new');
                 } else {
-                    showToast(res.message || '导入失败', 'error');
+                    showToast(res.message || '创建导入任务失败', 'error');
                 }
+            }).catch(function(err) {
+                showToast('创建导入任务失败: ' + (err.responseJSON?.message || err.statusText), 'error');
             });
         } else {
             // 选择已有项目
@@ -1068,15 +1096,16 @@
             
             requestData.metadata_override = metadata_override;
             
-            apiPost('/api/import-download', requestData).then(function(res) {
-                if (res.success) {
-                    showToast('导入成功');
-                    $('#import-modal').modal('hide');
-                    scanDownloads();
-                    loadImportedProjects();
+            // 使用异步导入 API
+            apiPost('/api/files/import/async', requestData).then(function(res) {
+                if (res.success && res.task_id) {
+                    // 开始轮询任务状态
+                    pollImportTaskStatus(res.task_id, 'new');
                 } else {
-                    showToast(res.message || '导入失败', 'error');
+                    showToast(res.message || '创建导入任务失败', 'error');
                 }
+            }).catch(function(err) {
+                showToast('创建导入任务失败: ' + (err.responseJSON?.message || err.statusText), 'error');
             });
         }
     }
@@ -1112,6 +1141,76 @@
         
         content.html(html);
         new bootstrap.Modal($('#detail-modal')).show();
+    }
+
+    // ==================== 项目校验弹窗 ====================
+    let currentVerifiedHash = {};  // 存储当前计算的哈希值
+    
+    function showProjectVerify(projectId, projectType) {
+        apiGet('/api/files', { project_id: projectId }).then(function(res) {
+            if (res.success && res.files) {
+                currentVerifiedHash = {};  // 重置哈希值
+                const content = $('#verify-content');
+
+                let html = `
+                    <div class="row mb-3">
+                        <div class="col-md-6"><strong>项目编号:</strong> ${projectId}</div>
+                        <div class="col-md-6"><strong>数据类型:</strong> ${projectType === 'raw' ? '原始数据' : '结果数据'}</div>
+                    </div>
+                    <div class="mb-3"><strong>文件数量:</strong> ${res.total || 0}</div>
+                    <hr>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="mb-0"><strong>文件列表:</strong></div>
+                        <div>
+                            <button type="button" class="btn btn-primary btn-sm" id="calculate-hash-btn" onclick="calculateSelectedHash()">
+                                <i class="bi bi-calculator me-1"></i>校验选中
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th><input type="checkbox" onchange="toggleAllVerifyFiles(this)"></th>
+                                    <th>文件名</th>
+                                    <th>属性</th>
+                                    <th style="width: 35%;">MD5</th>
+                                    <th style="width: 35%;">SHA256</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                if (res.files.length === 0) {
+                    html += `<tr><td colspan="5" class="text-center py-3 text-muted">暂无文件</td></tr>`;
+                } else {
+                    res.files.forEach(function(f) {
+                        const oldMd5 = f.file_MD5 || '-';
+                        const oldSha256 = f.file_SHA256 || '-';
+                        html += `<tr data-file-id="${f.id}">
+                            <td><input type="checkbox" class="verify-file-check" value="${f.id}" data-filename="${f.file_name}"></td>
+                            <td>${f.file_name}</td>
+                            <td>${f.file_property || '-'}</td>
+                            <td><div class="hash-display" id="md5-${f.id}">旧：${oldMd5}<br>新：<span style="color: #999;">-</span></div></td>
+                            <td><div class="hash-display" id="sha256-${f.id}" style="font-size: 0.875em;">旧：${oldSha256}<br>新：<span style="color: #999;">-</span></div></td>
+                        </tr>`;
+                    });
+                }
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+
+                content.html(html);
+                new bootstrap.Modal($('#verify-modal')).show();
+            } else {
+                showToast(res.message || '获取文件列表失败', 'error');
+            }
+        }).catch(function(err) {
+            showToast('获取文件列表失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+        });
     }
 
     // ==================== 项目详情弹窗 ====================
@@ -1158,13 +1257,13 @@
                     html += `<tr><td colspan="6" class="text-center py-3 text-muted">暂无文件</td></tr>`;
                 } else {
                     res.files.forEach(function(f) {
-                        html += `<tr>
+                        html += `<tr data-file-id="${f.id}">
                             <td><input type="checkbox" class="project-file-check" value="${f.id}" data-filename="${f.file_name}"></td>
                             <td>${f.file_name}</td>
                             <td>${f.file_property || '-'}</td>
                             <td>${formatSize(f.file_size)}</td>
-                            <td><span class="badge bg-secondary">${f.file_type || '-'}</span></td>
-                            <td>${f.imported_at || '-'}</td>
+                            <td>${f.file_type || '-'}</td>
+                            <td>${f.created_at ? f.created_at.split('T')[0] : '-'}</td>
                         </tr>`;
                     });
                 }
@@ -1182,6 +1281,141 @@
             }
         }).catch(function(err) {
             showToast('获取文件列表失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+        });
+    }
+    
+    function toggleAllVerifyFiles(checkbox) {
+        $('.verify-file-check').prop('checked', checkbox.checked);
+    }
+    
+    function getVerifyFileIds() {
+        const ids = [];
+        $('.verify-file-check:checked').each(function() {
+            ids.push(parseInt($(this).val()));
+        });
+        return ids;
+    }
+    
+    function formatHashValue(md5, sha256) {
+        let result = '';
+        if (md5) {
+            result += `<span style="font-size: 0.875em;">MD5：${md5}</span><br>`;
+        }
+        if (sha256) {
+            result += `<span style="font-size: 0.875em;">SHA256：${sha256}</span>`;
+        }
+        return result || '-';
+    }
+    
+    function calculateSelectedHash() {
+        const fileIds = getVerifyFileIds();
+        
+        if (fileIds.length === 0) {
+            showToast('请选择要校验的文件', 'warning');
+            return;
+        }
+        
+        // 禁用按钮，防止重复点击
+        $('#calculate-hash-btn').prop('disabled', true).html('<i class="bi bi-spinner spin me-1"></i>正在计算...');
+        
+        apiPost('/api/files/hash/calculate', { file_ids: fileIds }).then(function(res) {
+            if (res.success && res.task_id) {
+                // 开始轮询任务状态
+                pollHashTaskStatus(res.task_id);
+            } else {
+                showToast(res.message || '创建计算任务失败', 'error');
+                resetCalculateButton();
+            }
+        }).catch(function(err) {
+            showToast('创建计算任务失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+            resetCalculateButton();
+        });
+    }
+    
+    function pollHashTaskStatus(taskId) {
+        const pollInterval = setInterval(function() {
+            apiGet(`/api/files/hash/status/${taskId}`).then(function(res) {
+                if (!res.success) {
+                    clearInterval(pollInterval);
+                    showToast('任务状态查询失败', 'error');
+                    resetCalculateButton();
+                    return;
+                }
+                
+                const status = res.status;
+                const current = res.current;
+                const total = res.total;
+                const progress = res.progress;
+                
+                // 更新进度提示
+                if (status === 'running') {
+                    showToast(`正在计算: ${current}/${total} 文件 (${progress}%)`, 'info');
+                } else if (status === 'completed') {
+                    clearInterval(pollInterval);
+                    
+                    // 更新显示
+                    for (const [fileId, hashData] of Object.entries(res.results)) {
+                        const newMd5 = hashData.md5 || '-';
+                        const newSha256 = hashData.sha256 || '-';
+                        
+                        // 更新MD5列的新值
+                        const md5El = $(`#md5-${fileId}`);
+                        if (md5El.length > 0) {
+                            const oldMd5Text = md5El.html().split('<br>')[0]; // 保留旧MD5值
+                            md5El.html(`${oldMd5Text}<br>新：${newMd5}`);
+                        }
+                        
+                        // 更新SHA256列的新值
+                        const sha256El = $(`#sha256-${fileId}`);
+                        if (sha256El.length > 0) {
+                            const oldSha256Text = sha256El.html().split('<br>')[0]; // 保留旧SHA256值
+                            sha256El.html(`${oldSha256Text}<br>新：${newSha256}`);
+                        }
+                        
+                        // 存储计算的哈希值
+                        currentVerifiedHash[fileId] = hashData;
+                    }
+                    
+                    showToast(`成功计算 ${total} 个文件的哈希值`, 'success');
+                    resetCalculateButton();
+                } else if (status === 'failed') {
+                    clearInterval(pollInterval);
+                    showToast('计算失败: ' + (res.error || '未知错误'), 'error');
+                    resetCalculateButton();
+                }
+            }).catch(function(err) {
+                clearInterval(pollInterval);
+                showToast('任务状态查询失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+                resetCalculateButton();
+            });
+        }, 7500); // 每7.5秒轮询一次
+    }
+    
+    function resetCalculateButton() {
+        $('#calculate-hash-btn').prop('disabled', false).html('<i class="bi bi-calculator me-1"></i>校验选中');
+    }
+    
+    function saveVerifiedHash() {
+        if (Object.keys(currentVerifiedHash).length === 0) {
+            showToast('没有可保存的哈希值，请先进行校验', 'warning');
+            return;
+        }
+        
+        if (!confirm('确定要保存这些哈希值到数据库吗？')) {
+            return;
+        }
+        
+        apiPost('/api/files/hash/save', { hash_values: currentVerifiedHash }).then(function(res) {
+            if (res.success) {
+                showToast(res.message, 'success');
+                $('#verify-modal').modal('hide');
+                // 刷新项目列表
+                loadImportedProjects();
+            } else {
+                showToast(res.message || '保存哈希值失败', 'error');
+            }
+        }).catch(function(err) {
+            showToast('保存哈希值失败: ' + (err.responseJSON?.message || err.statusText), 'error');
         });
     }
 
@@ -1216,24 +1450,103 @@
         }
         
         // 确认删除
-        if (!confirm(`确定要删除选中的 ${fileIds.length} 个文件吗？\n文件将被移动到回收站。`)) {
+        if (!confirm(`确定要删除选中的 ${fileIds.length} 个文件吗？
+文件将被移动到回收站。`)) {
             return;
         }
         
-        apiDelete('/api/files', { file_ids: fileIds }).then(function(res) {
-            if (res.success) {
-                showToast(`成功删除 ${res.deleted_count} 个文件`, 'success');
-                $('#detail-modal').modal('hide');
-                loadImportedProjects();  // 刷新项目列表
+        // 使用异步删除 API
+        apiPost('/api/files/delete/async', { file_ids: fileIds }).then(function(res) {
+            if (res.success && res.task_id) {
+                // 开始轮询任务状态
+                pollDeleteTaskStatus(res.task_id);
             } else {
-                showToast(res.message || '删除失败', 'error');
+                showToast(res.message || '创建删除任务失败', 'error');
             }
         }).catch(function(err) {
-            showToast('删除失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+            showToast('创建删除任务失败: ' + (err.responseJSON?.message || err.statusText), 'error');
         });
     }
-
-    function downloadSelectedFiles() {
+    
+    function pollDeleteTaskStatus(taskId) {
+        const pollInterval = setInterval(function() {
+            apiGet(`/api/task/status/${taskId}`).then(function(res) {
+                if (!res.success) {
+                    clearInterval(pollInterval);
+                    showToast('任务状态查询失败', 'error');
+                    return;
+                }
+                
+                const status = res.task.status;
+                const taskName = res.task.name || '删除任务';
+                
+                // 更新进度提示
+                if (status === 'running') {
+                    showToast(`${taskName} 正在进行中...`, 'info');
+                } else if (status === 'completed') {
+                    clearInterval(pollInterval);
+                    
+                    const result = res.task.result || {};
+                    const deleted = result.deleted || 0;
+                    const total = result.total || 0;
+                    
+                    showToast(`${result.message || `成功删除 ${deleted}/${total} 个文件`}`, 'success');
+                    
+                    // 关闭详情弹窗并刷新列表
+                    $('#detail-modal').modal('hide');
+                    loadImportedProjects();
+                } else if (status === 'failed') {
+                    clearInterval(pollInterval);
+                    showToast(`${taskName} 失败: ` + (res.task.error || '未知错误'), 'error');
+                }
+            }).catch(function(err) {
+                clearInterval(pollInterval);
+                showToast('任务状态查询失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+            });
+        }, 7500); // 每7.5秒轮询一次
+    }
+    
+    function pollImportTaskStatus(taskId, projectType) {
+        const pollInterval = setInterval(function() {
+            apiGet(`/api/task/status/${taskId}`).then(function(res) {
+                if (!res.success) {
+                    clearInterval(pollInterval);
+                    showToast('任务状态查询失败', 'error');
+                    return;
+                }
+                
+                const status = res.task.status;
+                const taskName = res.task.name || '导入任务';
+                
+                // 更新进度提示
+                if (status === 'running') {
+                    showToast(`${taskName} 正在进行中...`, 'info');
+                } else if (status === 'completed') {
+                    clearInterval(pollInterval);
+                    
+                    const result = res.task.result || {};
+                    const imported = result.imported || 0;
+                    const total = result.total || 0;
+                    
+                    showToast(`${result.message || `成功导入 ${imported}/${total} 个文件`}`, 'success');
+                    
+                    // 关闭导入弹窗并刷新列表
+                    $('#import-modal').modal('hide');
+                    scanDownloads();
+                    loadImportedProjects();
+                } else if (status === 'failed') {
+                    clearInterval(pollInterval);
+                    showToast(`${taskName} 失败: ` + (res.task.error || '未知错误'), 'error');
+                }
+            }).catch(function(err) {
+                            clearInterval(pollInterval);
+                            showToast('任务状态查询失败: ' + (err.responseJSON?.message || err.statusText), 'error');
+                        });
+                    }, 7500); // 每7.5秒轮询一次
+                }
+                
+            
+                function downloadSelectedFiles() {
         const fileIds = getSelectedFileIds();
         
         if (fileIds.length === 0) {
@@ -1301,4 +1614,12 @@
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 </script>
-{% endblock %}
+{% endblock %}<style>
+.spin {
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+</style>

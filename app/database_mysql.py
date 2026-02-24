@@ -305,6 +305,8 @@ class DatabaseManager:
                     file_project_type   ENUM('raw', 'result') NOT NULL COMMENT '所属项目类型',
                     file_project_id     VARCHAR(50) NOT NULL COMMENT '所属项目编号',
                     file_project_ref_id VARCHAR(50) DEFAULT NULL COMMENT '关联项目编号（结果文件关联的原始数据项目）',
+                    file_MD5            CHAR(32) DEFAULT NULL COMMENT '文件MD5哈希值',
+                    file_SHA256         CHAR(64) DEFAULT NULL COMMENT '文件SHA256哈希值',
                     imported_at         DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '导入时间',
                     INDEX idx_project (file_project_type, file_project_id),
                     INDEX idx_file_path (file_path),
