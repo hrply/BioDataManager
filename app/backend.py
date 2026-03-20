@@ -1357,26 +1357,27 @@ class BioDataManager:
         # 路径格式: {rawdata_dir}/{数据类型}/{物种}/{样本来源}/{项目ID}/
         project_path = self._build_raw_project_path(raw_type, raw_species, raw_tissue, project_id)
 
-        # 获取源文件夹路径 - 拼接 /bio/downloads 前缀
-        if folder_name:
-            source_folder = self.downloads_dir / folder_name
-            source_folder = Path(source_folder) if not isinstance(source_folder, Path) else source_folder
-        else:
-            source_folder = None
-        
         import_count = 0
         duplicate_count = 0
         for file_info in files:
-            # 支持文件名(字符串)或文件对象(带path)
             if isinstance(file_info, str):
                 file_name = file_info
-                file_path = source_folder / file_name if source_folder else None
+                if folder_name:
+                    file_path = self.downloads_dir / folder_name / file_name
+                else:
+                    file_path = None
             else:
                 file_name = file_info.get('name', '')
-                file_path = Path(file_info.get('path', '')) if file_info.get('path') else None
-                if not file_path and source_folder:
-                    file_path = source_folder / file_name
-            
+                relative_path = file_info.get('relative_path', '')
+                if relative_path:
+                    file_path = self.downloads_dir / relative_path
+                elif file_info.get('path'):
+                    file_path = Path(file_info.get('path'))
+                elif folder_name:
+                    file_path = self.downloads_dir / folder_name / file_name
+                else:
+                    file_path = None
+
             if file_path and file_path.exists():
                 dest_path = project_path / file_path.name
                 
@@ -1764,9 +1765,9 @@ class BioDataManager:
             )
             
             if result.get('success'):
-                imported_count = len(result.get('imported', []))
+                imported_count = result.get('imported', 0)
                 failed_count = total - imported_count
-                
+
                 return {
                     'success': True,
                     'message': f'成功导入 {imported_count}/{total} 个文件',

@@ -915,19 +915,21 @@
 
     function renderFileSelection(files) {
         const area = $('#file-selection-area');
-        
+
         if (!files || files.length === 0) {
             area.html('<p class="text-muted text-center mb-0">该文件夹为空</p>');
             return;
         }
-        
+
         let html = '';
         files.forEach(function(f, index) {
             const fileId = `file-${index}`;
             const relativePath = f.relative_path || '';
+            // 存储完整文件信息（JSON 字符串），包含 name 和 relative_path
+            const fileData = JSON.stringify({name: f.name, relative_path: f.relative_path || ''});
             html += `
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="${fileId}" value="${f.name}"
+                    <input class="form-check-input" type="checkbox" id="${fileId}" value='${fileData}'
                            onchange="toggleFileSelect(this)">
                     <label class="form-check-label" for="${fileId}">
                         ${f.name} <small class="text-muted">(${formatSize(f.size)})</small>
@@ -967,10 +969,36 @@
             showToast('请选择要导入的文件', 'warning');
             return;
         }
-        
+
+        // 解析选中的文件（JSON 格式），提取文件名和相对路径
+        const selectedFileList = Array.from(selectedFiles).map(function(fileData) {
+            try {
+                const file = typeof fileData === 'string' ? JSON.parse(fileData) : fileData;
+                return {
+                    name: file.name,
+                    relative_path: file.relative_path || ''
+                };
+            } catch(e) {
+                // 兼容旧格式（纯文件名）
+                return {name: fileData, relative_path: ''};
+            }
+        });
+
+        // 从第一个文件的 relative_path 提取源文件夹路径
+        // 例如：relative_path = "10.1038/cytof/pbl_cytof/file.fcs" → folder_name = "10.1038/cytof/pbl_cytof"
+        let folderName = currentFolder.name;
+        if (selectedFileList.length > 0 && selectedFileList[0].relative_path) {
+            const firstPath = selectedFileList[0].relative_path;
+            // 移除文件名，保留目录路径
+            const pathParts = firstPath.split('/');
+            if (pathParts.length > 1) {
+                folderName = pathParts.slice(0, -1).join('/');
+            }
+        }
+
         const requestData = {
-            folder_name: currentFolder.name,
-            files: Array.from(selectedFiles),
+            folder_name: folderName,
+            files: selectedFileList,  // 传入完整文件对象（包含 name 和 relative_path）
             data_type: isRaw ? 'raw' : 'result'
         };
         
