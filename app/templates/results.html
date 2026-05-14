@@ -59,6 +59,7 @@
                     <thead class="table-light">
                         <tr>
                             <th>#</th>
+                            <th>项目编号</th>
 {%- if rowtitle_mapping %}
 {%- for field_seq, field_info in rowtitle_mapping.items()|sort %}
                             <th>{{ field_info.field_name }}</th>
@@ -77,6 +78,7 @@
 {%- for p in bioresult_projects %}
                         <tr>
                             <td>{{ loop.index }}</td>
+                            <td>{{ p.results_id }}</td>
 {%- if rowtitle_mapping %}
 {%- for field_seq, field_info in rowtitle_mapping.items()|sort %}
 {%- set field_id = field_info.field_id %}
@@ -113,7 +115,7 @@
                         </tr>
 {%- endfor %}
 {%- else %}
-{%- set col_count = 3 + (rowtitle_mapping|length if rowtitle_mapping else 3) %}
+{%- set col_count = 4 + (rowtitle_mapping|length if rowtitle_mapping else 3) %}
                         <tr>
                             <td colspan="{{ col_count }}" class="text-center py-4 text-muted">
                                 <i class="bi bi-inbox fs-4 d-block mb-2"></i>
@@ -328,8 +330,8 @@
         const pageProjects = projects.slice(start, end);
         const fields = displayFields.length > 0 ? displayFields : (window.resultFields || []);
         
-        // 计算动态列数（固定列: 序号 + 创建时间 + 操作按钮 = 3）
-        const dynamicColCount = 3 + fields.length;
+        // 计算动态列数（固定列: 序号 + 项目编号 + 创建时间 + 操作按钮 = 4）
+        const dynamicColCount = 4 + fields.length;
 
         if (pageProjects.length === 0) {
             $('#project-list').html(`
@@ -343,7 +345,7 @@
         } else {
             let html = '';
             pageProjects.forEach(function(p, index) {
-                html += `<tr><td>${start + index + 1}</td>`;
+                html += `<tr><td>${start + index + 1}</td><td>${p.results_id || '-'}</td>`;
                 
                 // 动态渲染字段列
                 fields.forEach(function(field) {
