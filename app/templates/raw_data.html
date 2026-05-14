@@ -21,25 +21,28 @@
         </div>
         <div class="card-body">
             <div class="row g-3" id="filter-form">
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">数据类型</label>
                     <select class="form-select" id="filter-raw_type">
                         <option value="">全部</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">物种</label>
                     <select class="form-select" id="filter-raw_species">
                         <option value="">全部</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">组织来源</label>
                     <select class="form-select" id="filter-raw_tissue">
                         <option value="">全部</option>
                     </select>
                 </div>
-                <div class="col-md-3 d-flex align-items-end gap-2">
+                <div class="col-md-2 d-flex align-items-end">
+                    <input type="text" class="form-control" id="filter-raw_keywords" placeholder="关键词">
+                </div>
+                <div class="col-md-4 d-flex align-items-end gap-2">
                     <button class="btn btn-outline-secondary" onclick="resetFilter()">
                         <i class="bi bi-arrow-clockwise me-1"></i>重置
                     </button>
@@ -991,84 +994,45 @@
 
     // 重置筛选
     function resetFilter() {
-        $('#filter-raw_type, #filter-raw_species, #filter-raw_tissue').val('');
+        $('#filter-raw_type, #filter-raw_species, #filter-raw_tissue, #filter-raw_keywords').val('');
         currentPage = 1;
         loadProjects();
     }
 
-                    // 应用筛选
-
-                function applyFilter() {
-
-                    // 获取选中的筛选值（value）
-
-                    const typeValue = $('#filter-raw_type').val();
-
-                                        const speciesValue = $('#filter-raw_species').val();
-
-                                        const tissueValue = $('#filter-raw_tissue').val();
-
-                    
-
-                                        // API 返回的是 label，需要将筛选的 value 转换为 label
-
-                                        const type = typeValue && window.filterValueToLabelMap?.raw_type?.[typeValue] ? window.filterValueToLabelMap.raw_type[typeValue] : typeValue;
-
-                                        const species = speciesValue && window.filterValueToLabelMap?.raw_species?.[speciesValue] ? window.filterValueToLabelMap.raw_species[speciesValue] : speciesValue;
-
-                                        const tissue = tissueValue && window.filterValueToLabelMap?.raw_tissue?.[tissueValue] ? window.filterValueToLabelMap.raw_tissue[tissueValue] : tissueValue;
-
-                    
-
-                                        apiGet('/api/projects', {table: 'raw'}).then(function(res) {
-
-                                            if (res.success) {
-
-                                                let filtered = res.data || [];
-
-                    
-
-                                                if (type) {
-
-                                                    // 部分匹配（支持多值字段，如 "SUMO PTMome,转录组"）
-
-                                                    filtered = filtered.filter(p => p.raw_type && p.raw_type.includes(type));
-
-                                                }
-
-                                                if (species) {
-
-                                                    // 精确匹配（单值字段）
-
-                                                    filtered = filtered.filter(p => p.raw_species === species);
-
-                                                }
-
-                                                if (tissue) {
-
-                                                    // 部分匹配（可能是多值字段）
-
-                                                    filtered = filtered.filter(p => p.raw_tissue && p.raw_tissue.includes(tissue));
-
-                                                }
-
+                    function applyFilter() {
+                        const typeValue = $('#filter-raw_type').val();
+                        const speciesValue = $('#filter-raw_species').val();
+                        const tissueValue = $('#filter-raw_tissue').val();
+                        const keyword = $('#filter-raw_keywords').val().trim().replace(/，/g, ',');
+                        
+                        const type = typeValue && window.filterValueToLabelMap?.raw_type?.[typeValue] ? window.filterValueToLabelMap.raw_type[typeValue] : typeValue;
+                        const species = speciesValue && window.filterValueToLabelMap?.raw_species?.[speciesValue] ? window.filterValueToLabelMap.raw_species[speciesValue] : speciesValue;
+                        const tissue = tissueValue && window.filterValueToLabelMap?.raw_tissue?.[tissueValue] ? window.filterValueToLabelMap.raw_tissue[tissueValue] : tissueValue;
+                        
+                        const params = {table: 'raw'};
+                        if (keyword) params.keywords = keyword;
+                        
+                        apiGet('/api/projects', params).then(function(res) {
+                            if (res.success) {
+                                let filtered = res.data || [];
+                                
+                                if (type) {
+                                    filtered = filtered.filter(p => p.raw_type && p.raw_type.includes(type));
+                                }
+                                if (species) {
+                                    filtered = filtered.filter(p => p.raw_species === species);
+                                }
+                                if (tissue) {
+                                    filtered = filtered.filter(p => p.raw_tissue && p.raw_tissue.includes(tissue));
+                                }
                             
-
-                            projects = filtered;
-
-                            currentPage = 1;
-
-                            renderProjects();
-
-                            showToast(`筛选完成，找到 ${projects.length} 条记录`, 'success');
-
-                        }
-
+                                projects = filtered;
+                                currentPage = 1;
+                                renderProjects();
+                                showToast(`筛选完成，找到 ${projects.length} 条记录`, 'success');
+                            }
                     }).catch(function(err) {
-
                         showToast('筛选失败', 'error');
-
                     });
-
                 }</script>
 {% endblock %}

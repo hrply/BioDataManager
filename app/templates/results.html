@@ -21,17 +21,20 @@
         </div>
         <div class="card-body">
             <div class="row g-3" id="filter-form">
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">结果类型</label>
                     <select class="form-select" id="filter-results_type">
                         <option value="">全部</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">关联原始数据</label>
                     <select class="form-select" id="filter-results_raw">
                         <option value="">全部</option>
                     </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <input type="text" class="form-control" id="filter-results_keywords" placeholder="关键词">
                 </div>
                 <div class="col-md-3 d-flex align-items-end gap-2">
                     <button class="btn btn-outline-secondary" onclick="resetFilter()">
@@ -908,30 +911,29 @@
 
     // 重置筛选
     function resetFilter() {
-        $('#filter-results_type, #filter-results_raw').val('');
+        $('#filter-results_type, #filter-results_raw, #filter-results_keywords').val('');
         currentPage = 1;
         loadProjects();
     }
 
-    // 应用筛选
     function applyFilter() {
-        // 获取选中的筛选值（value）
         const typeValue = $('#filter-results_type').val();
         const raw = $('#filter-results_raw').val();
+        const keyword = $('#filter-results_keywords').val().trim().replace(/，/g, ',');
         
-        // API 返回的是 label，需要将筛选的 value 转换为 label
         const type = typeValue && window.filterValueToLabelMap?.results_type?.[typeValue] ? window.filterValueToLabelMap.results_type[typeValue] : typeValue;
         
-        apiGet('/api/projects', {table: 'result'}).then(function(res) {
+        const params = {table: 'result'};
+        if (keyword) params.keywords = keyword;
+        
+        apiGet('/api/projects', params).then(function(res) {
             if (res.success) {
                 let filtered = res.data || [];
 
                 if (type) {
-                    // 部分匹配（支持多值字段）
                     filtered = filtered.filter(p => p.results_type && p.results_type.includes(type));
                 }
                 if (raw) {
-                    // 精确匹配
                     filtered = filtered.filter(p => p.results_raw && p.results_raw.includes(raw));
                 }
 

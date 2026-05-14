@@ -384,16 +384,20 @@ def api_get_options():
 
 @app.route('/api/projects')
 def api_get_projects():
-    """获取项目列表（支持table参数）"""
+    """获取项目列表（支持table参数和keywords筛选）"""
     table = request.args.get('table', '')
+    keywords = request.args.get('keywords', '').strip().replace('，', ',')
     try:
-        if table == 'raw':
-            projects = get_manager().get_all_raw_projects()
-        elif table == 'result':
+        if table == 'result':
             projects = get_manager().get_all_result_projects()
+            kw_field = 'results_keywords'
         else:
-            # 默认返回原始数据项目
             projects = get_manager().get_all_raw_projects()
+            kw_field = 'raw_keywords'
+
+        if keywords:
+            projects = [p for p in projects if match_keywords(keywords, p.get(kw_field, ''))]
+
         return jsonify({'success': True, 'data': projects, 'total': len(projects)})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -781,28 +785,109 @@ def api_directory_tree():
         return jsonify({'success': False, 'message': str(e)})
 
 
+# ==================== 关键词匹配工具函数 ====================
+
+def _split_top_level(s):
+    """按顶层逗号分割字符串，忽略括号内的逗号"""
+    parts = []
+    depth = 0
+    current = []
+    for ch in s:
+        if ch == '(':
+            depth += 1
+            current.append(ch)
+        elif ch == ')':
+            depth -= 1
+            current.append(ch)
+        elif ch == ',' and depth == 0:
+            parts.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    last = ''.join(current).strip()
+    if last:
+        parts.append(last)
+    return parts
+
+
+def _parse_keyword_expr(expr):
+    """递归解析关键词表达式为 AST 节点"""
+    expr = expr.strip()
+    upper = expr.upper()
+    if upper.startswith('AND(') and expr.endswith(')'):
+        inner = expr[4:-1]
+        args = _split_top_level(inner)
+        if not args:
+            return {'type': 'TERM', 'value': ''}
+        return {'type': 'AND', 'children': [_parse_keyword_expr(a) for a in args]}
+    if upper.startswith('OR(') and expr.endswith(')'):
+        inner = expr[3:-1]
+        args = _split_top_level(inner)
+        if not args:
+            return {'type': 'TERM', 'value': ''}
+        return {'type': 'OR', 'children': [_parse_keyword_expr(a) for a in args]}
+    return {'type': 'TERM', 'value': expr}
+
+
+def _evaluate_keyword_node(node, tokens_lower):
+    """递归评估关键词 AST 节点"""
+    if node['type'] == 'TERM':
+        val = node['value'].lower()
+        if not val:
+            return True
+        return any(val in t for t in tokens_lower)
+    if node['type'] == 'AND':
+        return all(_evaluate_keyword_node(c, tokens_lower) for c in node['children'])
+    if node['type'] == 'OR':
+        return any(_evaluate_keyword_node(c, tokens_lower) for c in node['children'])
+    return False
+
+
+def match_keywords(keywords_input, field_value):
+    """匹配关键词表达式与字段值
+
+    :param keywords_input: 用户输入的关键词表达式，如 'IBD', 'AND(A,B)', 'OR(A,B)', 'AND(OR(A,B),C)'
+    :param field_value: 数据库中的关键词字段值，如 'DRAK2,DSS,IBD,in house'
+    :return: True 表示匹配
+
+    语法:
+      - 单关键词: 部分匹配（忽略大小写），逗号分隔的任一关键词命中即可
+      - AND(A,B,C): 每个参数都需命中
+      - OR(A,B,C): 任一参数命中即可
+      - 支持嵌套: AND(OR(A,B),OR(C,D))
+      - keywords_input 为空时返回 True（不过滤）
+    """
+    if not keywords_input:
+        return True
+    if not field_value:
+        return False
+    tokens = [t.strip().lower() for t in field_value.replace('，', ',').split(',') if t.strip()]
+    if not tokens:
+        return False
+    ast = _parse_keyword_expr(keywords_input)
+    return _evaluate_keyword_node(ast, tokens)
+
+
 # ==================== API 路由 - 文件管理（新）====================
 
 @app.route('/api/files/imported-projects')
 def api_get_imported_projects():
     """获取已导入项目列表
     
-    支持按项目类型和项目编号筛选
+    支持按项目类型、项目编号和关键词筛选
     """
     try:
         db = get_db_manager()
         
-        # 获取筛选参数
         file_project_type = request.args.get('file_project_type')
         file_project_ids = request.args.get('file_project_ids')
+        keywords = request.args.get('keywords', '').strip().replace('，', ',')
         
-        # 解析项目编号列表（支持中英文逗号）
         project_id_list = []
         if file_project_ids:
             project_id_list = [pid.strip() for pid in file_project_ids.replace('，', ',').split(',')]
             project_id_list = [pid for pid in project_id_list if pid]
         
-        # 查询 file_record 获取符合条件的项目
         base_query = """
             SELECT DISTINCT file_project_id, file_project_type 
             FROM file_record 
@@ -823,37 +908,44 @@ def api_get_imported_projects():
         
         records = db.query(base_query, params)
         
-        # 根据 project_type 查询对应项目表
         projects = []
         for record in records:
-            proj_id = record[0]  # file_project_id
-            proj_type = record[1]  # file_project_type
+            proj_id = record[0]
+            proj_type = record[1]
             
             if proj_type == 'raw':
                 row = db.query_one("""
-                    SELECT raw_id, raw_title, created_at, raw_file_count 
+                    SELECT raw_id, raw_title, created_at, raw_file_count, raw_keywords
                     FROM raw_project WHERE raw_id = %s
                 """, (proj_id,))
                 if row:
+                    proj_keywords = row[4] or ''
+                    if not match_keywords(keywords, proj_keywords):
+                        continue
                     projects.append({
                         'project_id': row[0],
                         'project_type': 'raw',
                         'title': row[1],
                         'created_at': row[2].strftime('%Y-%m-%d %H:%M:%S') if row[2] else None,
-                        'file_count': row[3] or 0
+                        'file_count': row[3] or 0,
+                        'keywords': proj_keywords
                     })
-            else:  # result
+            else:
                 row = db.query_one("""
-                    SELECT results_id, results_title, created_at, results_file_count 
+                    SELECT results_id, results_title, created_at, results_file_count, results_keywords
                     FROM result_project WHERE results_id = %s
                 """, (proj_id,))
                 if row:
+                    proj_keywords = row[4] or ''
+                    if not match_keywords(keywords, proj_keywords):
+                        continue
                     projects.append({
                         'project_id': row[0],
                         'project_type': 'result',
                         'title': row[1],
                         'created_at': row[2].strftime('%Y-%m-%d %H:%M:%S') if row[2] else None,
-                        'file_count': row[3] or 0
+                        'file_count': row[3] or 0,
+                        'keywords': proj_keywords
                     })
         
         return jsonify({

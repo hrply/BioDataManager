@@ -39,16 +39,20 @@
                 </div>
                 <div class="card-body">
                     <div class="row g-2">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <select class="form-select form-select-sm" id="filter-project-type">
                                 <option value="">项目类型 (全部)</option>
                                 <option value="raw">原始数据</option>
                                 <option value="result">结果数据</option>
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <input type="text" class="form-control form-control-sm" 
                                    id="filter-project-id" placeholder="项目编号">
+                        </div>
+                        <div class="col-md-2">
+                            <input type="text" class="form-control form-control-sm"
+                                   id="filter-keywords" placeholder="关键词">
                         </div>
                         <div class="col-md-4">
                             <button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="applyFilter()">
@@ -633,12 +637,13 @@
     function loadImportedProjects() {
         const type = $('#filter-project-type').val();
         const ids = $('#filter-project-id').val().trim();
+        const keywords = $('#filter-keywords').val().trim().replace(/，/g, ',');
         
         const params = {};
         if (type) params.file_project_type = type;
         if (ids) params.file_project_ids = ids;
+        if (keywords) params.keywords = keywords;
         
-        // 添加排序参数
         params.sort_field = currentSort.field;
         params.sort_order = currentSort.order;
         
@@ -1625,6 +1630,7 @@
     function resetFilter() {
         $('#filter-project-type').val('');
         $('#filter-project-id').val('');
+        $('#filter-keywords').val('');
         loadImportedProjects();
     }
 
