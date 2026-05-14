@@ -418,6 +418,7 @@ def init_abbr_mapping(db, force=False):
         ('免疫组学', 'immuno'),
         ('CyTOF', 'cytof'),
         ('空间多组学', 'spatial'),
+        ('QTL', 'qtl'),
     ]
     
     # 物种缩写
