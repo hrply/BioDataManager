@@ -15,6 +15,7 @@ BioData Manager 是一个生物信息学数据管理系统，用于管理原始�
 - **元数据配置**：动态配置字段显示和表单生成
 
 ### 最新更新
+- **关键词过滤功能**：原始数据/结果管理/文件管理页面新增关键词过滤输入框，支持 AND/OR 表达式语法
 - **导入时间戳优化**：异步导入使用任务创建时间（点击导入按钮时间）作为 `imported_at`，避免异步完成时间与用户期望不符
 - **递归文件扫描**：支持扫描多层子目录，自动发现所有嵌套文件
 - **异步 Hash 校验**：新增文件 MD5/SHA256 哈希值计算功能，支持大文件异步处理
@@ -227,6 +228,42 @@ UUID规则:
 
 ## 核心功能模块
 
+### 关键词过滤
+
+**功能特性**：
+- 原始数据/结果管理/文件管理页面新增关键词过滤输入框
+- 支持 AND/OR 表达式语法
+- 支持中英文逗号自动转换
+- 部分匹配（忽略大小写），逗号分隔的任一关键词命中即可
+
+**语法说明**：
+| 语法 | 说明 | 示例 |
+|------|------|------|
+| 单关键词 | 部分匹配，忽略大小写 | `IBD` 匹配 `DRAK2,IBD,in house` |
+| `AND(A,B,C)` | 所有关键词都必须命中 | `AND(DSS,IBD)` 匹配包含 DSS 和 IBD 的记录 |
+| `OR(A,B,C)` | 任一关键词命中即可 | `OR(DSS,UC)` 匹配包含 DSS 或 UC 的记录 |
+| 嵌套 | 支持复杂表达式 | `AND(OR(DSS,UC),Human)` |
+
+**实现位置**：
+- `server.py:788-868` - 关键词表达式解析与匹配函数
+  - `_split_top_level()` - 按顶层逗号分割字符串，忽略括号内的逗号
+  - `_parse_keyword_expr()` - 递归解析关键词表达式为 AST 节点
+  - `_evaluate_keyword_node()` - 递归评估关键词 AST 节点
+  - `match_keywords()` - 匹配关键词表达式与字段值
+
+**数据库字段**：
+- `raw_project.raw_keywords` - 原始数据项目关键词（500字符）
+- `result_project.results_keywords` - 结果数据项目关键词（500字符）
+
+**前端实现**：
+- `raw_data.html:43` - 关键词输入框（`#filter-raw_keywords`）
+- `results.html:37` - 关键词输入框（`#filter-results_keywords`）
+- `files.html:55` - 关键词输入框（`#filter-keywords`）
+
+**API 传递**：
+- GET 参数 `keywords` 传递给后端，后端自动替换中文逗号为英文逗号
+- 后端根据项目类型选择 `raw_keywords` 或 `results_keywords` 字段进行匹配
+
 ### 文件扫描（递归）
 
 **功能特性**：
@@ -433,12 +470,19 @@ UUID规则:
 | 免疫组学 | 免疫组学 | immuno | 19 |
 | **CyTOF** | **质谱流式** | **cytof** | **20** |
 | 空间多组学 | 空间多组学 | spatial | 21 |
+| QTL | 数量性状基因座 | qtl | 22 |
 
 **新增 CyTOF 支持**：
 - 选项值：`CyTOF`
 - 显示名称：`质谱流式`
 - 缩写：`cytof`
 - 文件路径示例：`/bio/rawdata/cytof/{物种缩写}/{组织缩写}/{项目编号}/{文件名}`
+
+**新增 PBMC 组织来源**：
+- 选项值：`Peripheral blood mononuclear cell`
+- 显示名称：`外周单个核细胞 (PMBC)`
+- 缩写：`pbmc`
+- 文件路径示例：`/bio/rawdata/mRseq/Hs/pbmc/RAW_A1B2C3D4/sample1.fastq.gz`
 
 ## 数据库设计
 
@@ -539,8 +583,13 @@ UUID规则:
 1. 在 `field_config` 表中插入新字段配置
 2. 如果是 `select` 类型，在 `select_options` 表中添加选项
 3. 如果需要缩写映射，在 `abbr_mapping` 表中添加映射
-4. 更新 `.env` 文件中的 `METADATA_FIELDS_*` 配置
-5. 重启服务
+4. 如果字段有预定义选项，需要更新 `field_config.field_options` JSON 字段
+5. 更新 `.env` 文件中的 `METADATA_FIELDS_*` 配置
+6. 重启服务
+
+**注意**：`field_options` 是存储在 `field_config` 表中的 JSON 字段，与 `select_options` 表独立。
+前端通过 `/api/metadata/config` 获取 `field_options` JSON 来渲染下拉选项。
+通过前端"元数据配置"页面添加选项时会同步更新两者，但直接操作数据库时需要手动同步。
 
 ### 修改字段显示顺序
 
@@ -569,6 +618,17 @@ python3 app/init_db.py --force
    - `raw_type` 字段配置的 `field_options` JSON 数组
    - `raw_type_options` 列表
    - `raw_type_abbrs` 列表
+2. 运行初始化脚本：
+   ```bash
+   docker-compose exec biodata-manager python3 init_db.py
+   ```
+3. 刷新页面即可看到新选项
+
+### 添加新的组织来源（如 PBMC）
+
+1. 修改 `app/init_db.py` 中的两个位置：
+   - `raw_tissue_options` 列表
+   - `raw_tissue_abbrs` 列表
 2. 运行初始化脚本：
    ```bash
    docker-compose exec biodata-manager python3 init_db.py

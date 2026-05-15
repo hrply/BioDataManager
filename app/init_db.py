@@ -342,6 +342,7 @@ def init_select_options(db, force=False):
         ('Tonsil', 'Tonsil (扁桃体)', 48),
         ('Urinary bladder', 'Urinary bladder (膀胱)', 49),
         ('Vagina', 'Vagina (阴道)', 50),
+        ('Peripheral blood mononuclear cell', '外周单个核细胞 (PMBC)', 51),
     ]
     
     all_options = [
@@ -482,6 +483,7 @@ def init_abbr_mapping(db, force=False):
         ('Tonsil', 'Ton'),
         ('Urinary bladder', 'Ub'),
         ('Vagina', 'Va'),
+        ('Peripheral blood mononuclear cell', 'pbmc'),
     ]
     
     all_abbrs = [
