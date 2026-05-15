@@ -201,7 +201,13 @@ class BioDataManager:
             raise ValueError(f"{field_name} 包含无效字符 [{invalid_list}]，只允许字母、数字、下划线和英文逗号")
         
         return normalized
-    
+
+    def _normalize_field_value(self, value):
+        """将数组转为逗号分隔字符串，保持字符串不变"""
+        if isinstance(value, list):
+            return ','.join([v.strip() for v in value if v.strip()])
+        return value if value else ''
+
     def _value_to_label(self, field_id: str, value: str) -> str:
         """将字段值转换为显示标签（value → label 转换）
         
@@ -403,29 +409,32 @@ class BioDataManager:
         raw_id = data.get('raw_id')
         if not raw_id:
             return False
-        
-        # 处理多选字段
-        raw_tissue_input = data.get('raw_tissue', '')
-        if isinstance(raw_tissue_input, list):
-            raw_tissue_input = ','.join([t.strip() for t in raw_tissue_input if t.strip()])
-        
-        # 验证并规范化逗号分隔的字段
-        raw_tissue = self._validate_comma_separated(raw_tissue_input, '组织来源 (raw_tissue)')
+
+        current_project = self.get_raw_project_by_id(raw_id)
+        current_title = current_project.get('raw_title', '') if current_project else ''
+
+        raw_title = data.get('raw_title') or current_title
+
+        # 规范化多选字段值
+        raw_type = self._normalize_field_value(data.get('raw_type', ''))
+        raw_species = self._normalize_field_value(data.get('raw_species', ''))
+        raw_tissue = self._normalize_field_value(data.get('raw_tissue', ''))
+
         # 关键词允许中文字符
         keywords = self._validate_comma_separated(
             data.get('raw_keywords', '') or '', '关键词 (raw_keywords)', allow_chinese=True
         )
-        
+
         self.db_manager.execute("""
-            UPDATE raw_project 
+            UPDATE raw_project
             SET raw_title = %s, raw_type = %s, raw_species = %s, raw_tissue = %s,
                 raw_DOI = %s, raw_db_id = %s, raw_db_link = %s, raw_author = %s,
                 raw_article = %s, raw_description = %s, raw_keywords = %s
             WHERE raw_id = %s
         """, (
-            data.get('raw_title', ''),
-            data.get('raw_type', ''),
-            data.get('raw_species', ''),
+            raw_title,
+            raw_type,
+            raw_species,
             raw_tissue,
             data.get('raw_DOI', ''),
             data.get('raw_db_id', ''),
@@ -582,7 +591,15 @@ class BioDataManager:
         results_id = data.get('results_id')
         if not results_id:
             return False
-        
+
+        current_project = self.get_result_project_by_id(results_id)
+        current_title = current_project.get('results_title', '') if current_project else ''
+
+        results_title = data.get('results_title') or current_title
+
+        # 规范化多选字段值
+        results_type = self._normalize_field_value(data.get('results_type', ''))
+
         # 验证并规范化逗号分隔的字段
         raw_project_id = self._validate_comma_separated(
             data.get('results_raw', ''), '关联原始数据 (results_raw)'
@@ -591,15 +608,15 @@ class BioDataManager:
         keywords = self._validate_comma_separated(
             data.get('results_keywords', '') or '', '关键词 (results_keywords)', allow_chinese=True
         )
-        
+
         self.db_manager.execute("""
-            UPDATE result_project 
+            UPDATE result_project
             SET results_title = %s, results_type = %s, results_raw = %s,
                 results_description = %s, results_keywords = %s
             WHERE results_id = %s
         """, (
-            data.get('results_title', ''),
-            data.get('results_type', ''),
+            results_title,
+            results_type,
             raw_project_id,
             data.get('results_description', ''),
             keywords,
