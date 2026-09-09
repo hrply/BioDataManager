@@ -115,6 +115,7 @@ def init_field_config(db, force=False):
             {"value": "免疫组学", "label": "免疫组学"},
             {"value": "CyTOF", "label": "质谱流式"},
             {"value": "空间多组学", "label": "空间多组学"},
+            {"value": "QTL", "label": "数量性状基因座"},
         ]), '2', 0),
         ('raw_species', '物种', 'select', 'raw', 1, 3, json.dumps([
             {"value": "Homo sapiens", "label": "人"},
@@ -174,6 +175,7 @@ def init_field_config(db, force=False):
             {"value": "Tonsil", "label": "Tonsil (扁桃体)"},
             {"value": "Urinary bladder", "label": "Urinary bladder (膀胱)"},
             {"value": "Vagina", "label": "Vagina (阴道)"},
+            {"value": "Peripheral blood mononuclear cell", "label": "外周单个核细胞 (PBMC)"},
         ]), '2', 0),
         ('raw_DOI', 'DOI', 'link', 'raw', 0, 5, None, '2', 0),
         ('raw_db_id', '数据库编号', 'text', 'raw', 0, 6, None, '2', 0),

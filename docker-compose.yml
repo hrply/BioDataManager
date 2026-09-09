@@ -68,4 +68,5 @@ volumes:
 
 networks:
   default:
-    name: biodata_network
+    name: bio-network
+    external: true
